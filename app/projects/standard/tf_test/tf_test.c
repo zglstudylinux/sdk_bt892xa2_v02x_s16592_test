@@ -67,7 +67,7 @@ static bool tf_test_identify(void)
 // 后续任务的测试函数暂留位置（按需 uncomment）
 // ============================================================================
 
-#if 0   // Task 3: 单块读
+#if 1   // Task 3: 单块读（ACTIVE）
 static bool tf_test_read_single(void)
 {
     printf("\n[TF] ====== Task 3: Single Block Read ======\n");
@@ -248,9 +248,9 @@ void tf_test_run(void)
     printf("=========================================\n");
 
     if (!tf_test_identify())      goto halt;
+    if (!tf_test_read_single())  goto halt;   // Task 3 ACTIVE
 
     // 后续任务按顺序 uncomment，一次只加一个
-    // if (!tf_test_read_single())  goto halt;   // Task 3
     // if (!tf_test_read_multi())   goto halt;   // Task 4
     // if (!tf_test_write_single()) goto halt;   // Task 5
     // if (!tf_test_write_multi())  goto halt;   // Task 6
