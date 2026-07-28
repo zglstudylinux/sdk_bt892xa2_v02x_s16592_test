@@ -49,11 +49,11 @@ static bool tf_test_identify(void)
     // 触发鉴定协议
     if (!sd0_init()) {
         printf("[TF] FAIL: sd0_init returned false.\n");
-        printf("[TF]   检查项：\n");
-        printf("[TF]     1. TF 卡完全插入卡槽\n");
-        printf("[TF]     2. PE5(SDCMD) / PE6(SDCLK) / PE7(SDDAT0) 接线\n");
-        printf("[TF]     3. TF 卡供电 3.3V 正常\n");
-        printf("[TF]     4. SD0_MAPPING = SD0MAP_G3 已生效\n");
+        printf("[TF]   Check items:\n");
+        printf("[TF]     1. TF card fully inserted\n");
+        printf("[TF]     2. PE5(SDCMD) / PE6(SDCLK) / PE7(SDDAT0) wiring\n");
+        printf("[TF]     3. TF card 3.3V supply OK\n");
+        printf("[TF]     4. SD0_MAPPING = SD0MAP_G3 active\n");
         return false;
     }
 
@@ -71,7 +71,7 @@ static bool tf_test_identify(void)
 static bool tf_test_read_single(void)
 {
     printf("\n[TF] ====== Task 3: Single Block Read ======\n");
-    printf("[TF] LBA=%u  (远离 MBR/FAT 的安全区域)\n", TF_TEST_LBA);
+    printf("[TF] LBA=%u  (safe area, far from MBR/FAT)\n", TF_TEST_LBA);
     if (!sd0_read(s_read_buf, TF_TEST_LBA)) {
         printf("[TF] FAIL: sd0_read\n");
         return false;
@@ -83,7 +83,7 @@ static bool tf_test_read_single(void)
 }
 #endif
 
-#if 0   // Task 4: 多块读（API 只有单块，循环调用）
+#if 1   // Task 4: 多块读（API 只有单块，循环调用）(ACTIVE)
 static bool tf_test_read_multi(void)
 {
     printf("\n[TF] ====== Task 4: Multi Block Read (%u blocks) ======\n", TF_MULTI_COUNT);
@@ -98,7 +98,7 @@ static bool tf_test_read_multi(void)
 }
 #endif
 
-#if 0   // Task 5: 单块写（写后再读回校验）
+#if 1   // Task 5: 单块写（写后再读回校验）(ACTIVE)
 static bool tf_test_write_single(void)
 {
     printf("\n[TF] ====== Task 5: Single Block Write ======\n");
@@ -130,6 +130,9 @@ static bool tf_test_write_single(void)
         }
     }
     printf("[TF] PASS: write + readback verified, all 512 bytes match.\n");
+    printf("[TF] First 16 bytes written/verified:");
+    for (int i = 0; i < 16; i++) printf(" %02X", s_read_buf[i]);
+    printf("\n");
     return true;
 }
 #endif
@@ -248,11 +251,11 @@ void tf_test_run(void)
     printf("=========================================\n");
 
     if (!tf_test_identify())      goto halt;
-    if (!tf_test_read_single())  goto halt;   // Task 3 ACTIVE
+    if (!tf_test_read_single())  goto halt;   // Task 3 ACTIVE (baseline)
+    if (!tf_test_read_multi())   goto halt;   // Task 4 ACTIVE
+    if (!tf_test_write_single()) goto halt;   // Task 5 ACTIVE
 
     // 后续任务按顺序 uncomment，一次只加一个
-    // if (!tf_test_read_multi())   goto halt;   // Task 4
-    // if (!tf_test_write_single()) goto halt;   // Task 5
     // if (!tf_test_write_multi())  goto halt;   // Task 6
     // if (!tf_test_mixed())        goto halt;   // Task 7
 
