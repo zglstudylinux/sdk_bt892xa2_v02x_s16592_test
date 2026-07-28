@@ -1,0 +1,26 @@
+# Build output directories (created by Code::Blocks when rebuilding)
+Output/obj/**
+
+# IDE / editor
+.vscode/
+.vs/
+*.swp
+*.swo
+*~
+
+# Windows system files
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+ehthumbs.db
+ehthumbs_vista.db
+
+# macOS system files (in case anyone clones on Mac)
+.DS_Store
+
+# Logs
+*.log
+
+# Local backups
+*.bak
+*.tmp
