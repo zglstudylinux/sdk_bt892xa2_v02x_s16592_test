@@ -193,7 +193,7 @@ static bool tf_test_write_multi(void)
 }
 #endif
 
-#if 0   // Task 7: 多块读写混合 (single-buffer pattern verify)
+#if 1   // Task 7: 多块读写混合 (ACTIVE, single-buffer pattern verify)
 static bool tf_test_mixed(void)
 {
     printf("\n[TF] ====== Task 7: Multi Block Mixed R/W ======\n");
@@ -275,9 +275,7 @@ void tf_test_run(void)
     if (!tf_test_read_multi())   goto halt;   // Task 4 ACTIVE
     if (!tf_test_write_single()) goto halt;   // Task 5 ACTIVE
     if (!tf_test_write_multi())  goto halt;   // Task 6 ACTIVE
-
-    // 后续任务按顺序 uncomment，一次只加一个
-    // if (!tf_test_mixed())        goto halt;   // Task 7
+    if (!tf_test_mixed())        goto halt;   // Task 7 ACTIVE
 
     printf("\n[TF] ====== All active tests PASSED ======\n");
 
