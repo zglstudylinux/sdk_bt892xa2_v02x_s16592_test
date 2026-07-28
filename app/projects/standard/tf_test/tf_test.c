@@ -15,8 +15,9 @@
 #define TF_MULTI_COUNT      8u      // 多块测试块数
 
 // 4 字节对齐：SDIO DMA 基线要求；512 本身是 4 倍数，自动对齐 512 字节边界
-static u8 s_read_buf [TF_SECTOR_SIZE] __attribute__((aligned(4)));
-static u8 s_write_buf[TF_SECTOR_SIZE] __attribute__((aligned(4)));
+// 单 buffer 复用：先填 pattern → 写 → 读回覆盖 → 校验 pattern 是否完好
+// 节省 BSS 空间（ram.ld 里 data region 仅 13KB）
+static u8 s_buf[TF_SECTOR_SIZE] __attribute__((aligned(4)));
 
 /**
  * @brief Task 2: TF 卡鉴定流程
@@ -72,12 +73,12 @@ static bool tf_test_read_single(void)
 {
     printf("\n[TF] ====== Task 3: Single Block Read ======\n");
     printf("[TF] LBA=%u  (safe area, far from MBR/FAT)\n", TF_TEST_LBA);
-    if (!sd0_read(s_read_buf, TF_TEST_LBA)) {
+    if (!sd0_read(s_buf, TF_TEST_LBA)) {
         printf("[TF] FAIL: sd0_read\n");
         return false;
     }
     printf("[TF] PASS. First 16 bytes:");
-    for (int i = 0; i < 16; i++) printf(" %02X", s_read_buf[i]);
+    for (int i = 0; i < 16; i++) printf(" %02X", s_buf[i]);
     printf("\n");
     return true;
 }
@@ -88,7 +89,7 @@ static bool tf_test_read_multi(void)
 {
     printf("\n[TF] ====== Task 4: Multi Block Read (%u blocks) ======\n", TF_MULTI_COUNT);
     for (u32 lba = TF_TEST_LBA; lba < TF_TEST_LBA + TF_MULTI_COUNT; lba++) {
-        if (!sd0_read(s_read_buf, lba)) {
+        if (!sd0_read(s_buf, lba)) {
             printf("[TF] FAIL at LBA %u\n", lba);
             return false;
         }
@@ -98,57 +99,75 @@ static bool tf_test_read_multi(void)
 }
 #endif
 
-#if 1   // Task 5: 单块写（写后再读回校验）(ACTIVE)
+#if 1   // Task 5: 单块写（写后再读回校验）(ACTIVE, single-buffer pattern verify)
 static bool tf_test_write_single(void)
 {
     printf("\n[TF] ====== Task 5: Single Block Write ======\n");
-    // 填充已知 pattern：第一扇区标记 + LBA + 0xAA..0x55.. 交替
-    for (int i = 0; i < TF_SECTOR_SIZE; i++) {
-        s_write_buf[i] = (u8)((i & 1) ? 0x55 : 0xAA);
+    // 阶段 1: 填入已知 pattern
+    //   字节 0..1  = LBA 标记 (便于肉眼辨识)
+    //   字节 2..3  = 0xBE 0xEF 魔术数字
+    //   字节 4..   = 0xAA 0x55 0xAA 0x55 ... 交替
+    s_buf[0] = (u8)(TF_TEST_LBA & 0xFF);
+    s_buf[1] = (u8)((TF_TEST_LBA >> 8) & 0xFF);
+    s_buf[2] = 0xBE;
+    s_buf[3] = 0xEF;
+    for (int i = 4; i < TF_SECTOR_SIZE; i++) {
+        s_buf[i] = (i & 1) ? 0x55 : 0xAA;
     }
-    // 在前 4 字节写入 LBA 标记便于辨识
-    s_write_buf[0] = (u8)(TF_TEST_LBA & 0xFF);
-    s_write_buf[1] = (u8)((TF_TEST_LBA >> 8) & 0xFF);
-    s_write_buf[2] = 0xBE;
-    s_write_buf[3] = 0xEF;
 
-    if (!sd0_write(s_write_buf, TF_TEST_LBA)) {
+    // 阶段 2: 写到 LBA 1000
+    if (!sd0_write(s_buf, TF_TEST_LBA)) {
         printf("[TF] FAIL: sd0_write\n");
         return false;
     }
-    // 读回校验
-    if (!sd0_read(s_read_buf, TF_TEST_LBA)) {
+    printf("[TF] Write OK. Reading back...\n");
+
+    // 阶段 3: 读回到同一 buffer（覆盖 s_buf）
+    if (!sd0_read(s_buf, TF_TEST_LBA)) {
         printf("[TF] FAIL: sd0_read after write\n");
         return false;
     }
-    // 比对
+
+    // 阶段 4: 校验 pattern 是否完好（写后读回应该 pattern 完全一致）
+    u32 mismatches = 0;
     for (int i = 0; i < TF_SECTOR_SIZE; i++) {
-        if (s_read_buf[i] != s_write_buf[i]) {
-            printf("[TF] FAIL: data mismatch at byte %d (wrote %02X, read %02X)\n",
-                   i, s_write_buf[i], s_read_buf[i]);
-            return false;
+        u8 expected;
+        if (i == 0) expected = (u8)(TF_TEST_LBA & 0xFF);
+        else if (i == 1) expected = (u8)((TF_TEST_LBA >> 8) & 0xFF);
+        else if (i == 2) expected = 0xBE;
+        else if (i == 3) expected = 0xEF;
+        else expected = (i & 1) ? 0x55 : 0xAA;
+        if (s_buf[i] != expected) {
+            if (mismatches < 3) {
+                printf("[TF] FAIL: byte %d expected %02X got %02X\n",
+                       i, expected, s_buf[i]);
+            }
+            mismatches++;
         }
     }
-    printf("[TF] PASS: write + readback verified, all 512 bytes match.\n");
-    printf("[TF] First 16 bytes written/verified:");
-    for (int i = 0; i < 16; i++) printf(" %02X", s_read_buf[i]);
+    if (mismatches > 0) {
+        printf("[TF] FAIL: total %u byte mismatches\n", mismatches);
+        return false;
+    }
+
+    printf("[TF] PASS: write + readback verified, all 512 bytes match expected pattern.\n");
+    printf("[TF] First 16 bytes (readback):");
+    for (int i = 0; i < 16; i++) printf(" %02X", s_buf[i]);
     printf("\n");
     return true;
 }
 #endif
 
-#if 0   // Task 6: 多块写（循环写 + 循环读回校验）
+#if 1   // Task 6: 多块写 (ACTIVE, single-buffer pattern verify)
 static bool tf_test_write_multi(void)
 {
     printf("\n[TF] ====== Task 6: Multi Block Write (%u blocks) ======\n", TF_MULTI_COUNT);
-    // 阶段 1: 连续写
+    // 阶段 1: 连续写 (pattern: 字节 i = (lba + i) & 0xFF)
     for (u32 lba = TF_TEST_LBA; lba < TF_TEST_LBA + TF_MULTI_COUNT; lba++) {
-        // 用 LBA 作为 pattern 第一字节，后面是 LBA+0xAA 的循环
         for (int i = 0; i < TF_SECTOR_SIZE; i++) {
-            s_write_buf[i] = (u8)((lba + i) & 0xFF);
+            s_buf[i] = (u8)((lba + i) & 0xFF);
         }
-        s_write_buf[0] = (u8)(lba & 0xFF);
-        if (!sd0_write(s_write_buf, lba)) {
+        if (!sd0_write(s_buf, lba)) {
             printf("[TF] FAIL write at LBA %u\n", lba);
             return false;
         }
@@ -156,15 +175,15 @@ static bool tf_test_write_multi(void)
     printf("[TF] Phase 1 (write) OK. Starting phase 2 (readback)...\n");
     // 阶段 2: 连续读回校验
     for (u32 lba = TF_TEST_LBA; lba < TF_TEST_LBA + TF_MULTI_COUNT; lba++) {
-        if (!sd0_read(s_read_buf, lba)) {
+        if (!sd0_read(s_buf, lba)) {
             printf("[TF] FAIL readback at LBA %u\n", lba);
             return false;
         }
         for (int i = 0; i < TF_SECTOR_SIZE; i++) {
             u8 expected = (u8)((lba + i) & 0xFF);
-            if (s_read_buf[i] != expected) {
-                printf("[TF] FAIL: LBA %u byte %d mismatch (wrote %02X, read %02X)\n",
-                       lba, i, expected, s_read_buf[i]);
+            if (s_buf[i] != expected) {
+                printf("[TF] FAIL: LBA %u byte %d expected %02X, got %02X\n",
+                       lba, i, expected, s_buf[i]);
                 return false;
             }
         }
@@ -174,48 +193,49 @@ static bool tf_test_write_multi(void)
 }
 #endif
 
-#if 0   // Task 7: 多块读写混合（边读边写验证 DMA 缓冲不冲突）
+#if 0   // Task 7: 多块读写混合 (single-buffer pattern verify)
 static bool tf_test_mixed(void)
 {
     printf("\n[TF] ====== Task 7: Multi Block Mixed R/W ======\n");
-    // 用两块独立 buffer，避免读写别名
-    // 1. 写 4 块 pattern A
+    // 1. 写 4 块 pattern A (字节 i = ('A' + (lba - TF_TEST_LBA)))
     for (u32 lba = TF_TEST_LBA; lba < TF_TEST_LBA + 4; lba++) {
+        u8 pat = (u8)('A' + (lba - TF_TEST_LBA));
         for (int i = 0; i < TF_SECTOR_SIZE; i++) {
-            s_write_buf[i] = (u8)('A' + (lba - TF_TEST_LBA));
+            s_buf[i] = pat;
         }
-        if (!sd0_write(s_write_buf, lba)) {
+        if (!sd0_write(s_buf, lba)) {
             printf("[TF] FAIL write-A at LBA %u\n", lba);
             return false;
         }
     }
     printf("[TF] Phase 1: 4 blocks of pattern A written\n");
-    // 2. 立即读 4 块到 s_read_buf
+    // 2. 立即读 4 块，校验
     for (u32 lba = TF_TEST_LBA; lba < TF_TEST_LBA + 4; lba++) {
-        if (!sd0_read(s_read_buf, lba)) {
+        if (!sd0_read(s_buf, lba)) {
             printf("[TF] FAIL read-A at LBA %u\n", lba);
             return false;
         }
         u8 expected = (u8)('A' + (lba - TF_TEST_LBA));
-        if (s_read_buf[0] != expected) {
-            printf("[TF] FAIL: LBA %u expected pattern %c, got %02X\n",
-                   lba, expected, s_read_buf[0]);
+        if (s_buf[0] != expected || s_buf[511] != expected) {
+            printf("[TF] FAIL: LBA %u expected pattern %c, got first=%02X last=%02X\n",
+                   lba, expected, s_buf[0], s_buf[511]);
             return false;
         }
     }
     printf("[TF] Phase 2: readback A OK\n");
     // 3. 改写前 2 块为 pattern B，再读回
     for (u32 lba = TF_TEST_LBA; lba < TF_TEST_LBA + 2; lba++) {
+        u8 pat = (u8)('B' + (lba - TF_TEST_LBA));
         for (int i = 0; i < TF_SECTOR_SIZE; i++) {
-            s_write_buf[i] = (u8)('B' + (lba - TF_TEST_LBA));
+            s_buf[i] = pat;
         }
-        if (!sd0_write(s_write_buf, lba)) {
+        if (!sd0_write(s_buf, lba)) {
             printf("[TF] FAIL write-B at LBA %u\n", lba);
             return false;
         }
     }
     for (u32 lba = TF_TEST_LBA; lba < TF_TEST_LBA + 4; lba++) {
-        if (!sd0_read(s_read_buf, lba)) {
+        if (!sd0_read(s_buf, lba)) {
             printf("[TF] FAIL read-B at LBA %u\n", lba);
             return false;
         }
@@ -225,9 +245,9 @@ static bool tf_test_mixed(void)
         } else {
             expected = (u8)('A' + (lba - TF_TEST_LBA));
         }
-        if (s_read_buf[0] != expected) {
+        if (s_buf[0] != expected) {
             printf("[TF] FAIL: LBA %u expected %c, got %02X\n",
-                   lba, expected, s_read_buf[0]);
+                   lba, expected, s_buf[0]);
             return false;
         }
     }
@@ -254,9 +274,9 @@ void tf_test_run(void)
     if (!tf_test_read_single())  goto halt;   // Task 3 ACTIVE (baseline)
     if (!tf_test_read_multi())   goto halt;   // Task 4 ACTIVE
     if (!tf_test_write_single()) goto halt;   // Task 5 ACTIVE
+    if (!tf_test_write_multi())  goto halt;   // Task 6 ACTIVE
 
     // 后续任务按顺序 uncomment，一次只加一个
-    // if (!tf_test_write_multi())  goto halt;   // Task 6
     // if (!tf_test_mixed())        goto halt;   // Task 7
 
     printf("\n[TF] ====== All active tests PASSED ======\n");
