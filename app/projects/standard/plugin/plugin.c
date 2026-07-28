@@ -1,4 +1,5 @@
 #include "include.h"
+#include "../hello_world/hello_world.h"
 
 volatile int pwrkey_detect_flag;            //pwrkey 820K用于复用检测的标志。
 
@@ -169,6 +170,7 @@ void plugin_tmr5ms_isr(void)
 #if ENERGY_LED_EN
     energy_led_level_calc();
 #endif
+    hello_world_tick();   // Phase 2: hello_world 5ms 节拍
 }
 
 AT(.com_text.plugin)

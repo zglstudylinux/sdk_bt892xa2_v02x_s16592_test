@@ -1,4 +1,5 @@
 #include "include.h"
+#include "hello_world/hello_world.h"
 
 const uint8_t *bt_rf_get_param(void)
 {
@@ -36,6 +37,7 @@ int main(void)
     }
 
     bsp_sys_init();
+    hello_world_init();
     func_run();
     return 0;
 }

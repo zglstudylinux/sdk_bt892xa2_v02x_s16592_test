@@ -25,6 +25,7 @@
 			<Add directory="message" />
 			<Add directory="port" />
 			<Add directory="plugin" />
+			<Add directory="hello_world" />
 			<Add directory="../../modules" />
 			<Add directory="../../platform/header" />
 			<Add directory="../../platform/libs" />
@@ -52,6 +53,10 @@
 			<Add before="Output\bin\prebuild.bat $(PROJECT_NAME)" />
 			<Add after="Output\bin\postbuild.bat $(PROJECT_NAME)" />
 		</ExtraCommands>
+		<Unit filename="hello_world/hello_world.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="hello_world/hello_world.h" />
 		<Unit filename="../../platform/3rd-party/i2s/ta5711.c">
 			<Option compilerVar="CC" />
 		</Unit>
