@@ -27,6 +27,7 @@
 			<Add directory="plugin" />
 			<Add directory="hello_world" />
 			<Add directory="tf_test" />
+			<Add directory="fat_test" />
 			<Add directory="../../modules" />
 			<Add directory="../../platform/header" />
 			<Add directory="../../platform/libs" />
@@ -62,6 +63,20 @@
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="tf_test/tf_test.h" />
+		<Unit filename="fat_test/diskio.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="fat_test/diskio.h" />
+		<Unit filename="fat_test/pff.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="fat_test/pff.h" />
+		<Unit filename="fat_test/pffconf.h" />
+		<Unit filename="fat_test/pff_compat.h" />
+		<Unit filename="fat_test/fat_test.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="fat_test/fat_test.h" />
 		<Unit filename="../../platform/3rd-party/i2s/ta5711.c">
 			<Option compilerVar="CC" />
 		</Unit>
