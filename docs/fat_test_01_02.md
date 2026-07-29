@@ -318,11 +318,12 @@ static u8 s_cache[512] __attribute__((aligned(4), section(".diskio_buf")));
 | Task 4.1 建立 fat_test 目录 | ✅ |
 | Task 4.2 学习 Petit FatFs | ✅ |
 | Task 4.3 完成移植 | ✅ **实测 pff_mount PASS, fs_type=FAT32** |
+| Task 4.4 文件读写 | ✅ **实测 PASS**（详见 [fat_test_04.md](fat_test_04.md) §5.1） |
 
-下一步：[Task 4.4 文件读写](fat_test_04.md)（需要先在 SD 卡根目录放一个 `README.TXT` 或 `TEST.TXT`）。
+下一步：[Phase 5 WAV 播放器](https://github.com) （用 pff_open + pff_read 读 wav 文件）。
 
 ---
 
 ## 一句话总结
 
-> 把 ChaN 的 Petit FatFs R0.03a 装进 BT892XA2 SDK：重命名 `disk_*` 避开闭源符号冲突、维护 1 个 512 字节 cache 处理 partial-sector（read-modify-write）、typedef 逐项守卫避免与 SDK 重复——`pff_mount()` 返回 FAT32 即视为整条链路打通。
+> 把 ChaN 的 Petit FatFs R0.03a 装进 BT892XA2 SDK：重命名 `disk_*` / `pf_*` 避开闭源符号冲突、维护 1 个 512 字节 cache 处理 partial-sector（read-modify-write）、typedef 逐项守卫避免与 SDK 重复——`pff_mount()` 返回 FAT32 + `pff_open`/`pff_read`/`pff_write` 实测 PASS。Phase 4 全部完成。

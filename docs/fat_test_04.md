@@ -136,10 +136,12 @@ Petit FatFs 的 pff_write 协议：
 |---|---|
 | Task 4.1 建立 fat_test 目录 | ✅ |
 | Task 4.2 学习 Petit FatFs | ✅ |
-| Task 4.3 完成移植 | ✅（**pff_mount PASS 实测**） |
-| Task 4.4 文件读写测试 | ⏳ **SKIP 状态** — 2026-07-29 首次实测：SD 卡根目录没有 README.TXT / TEST.TXT / TEST.BIN，按设计 SKIP（不当作 FAIL）。用户需在 PC 端放文件后重烧重跑验证。 |
+| Task 4.3 完成移植 | ✅ |
+| Task 4.4 文件读写测试 | ✅ **2026-07-29 实测 PASS** |
 
-### 5.1 实测记录（2026-07-29）
+### 5.1 实测记录（2026-07-29，2 次）
+
+**第 1 次（没有 README.TXT）**：
 
 ```
 [FAT] ====== Task 4.4: File Open / Read / Write ======
@@ -147,27 +149,46 @@ Petit FatFs 的 pff_write 协议：
 [FAT] pff_open("TEST.TXT")   -> 4 (NO_FILE)
 [FAT] pff_open("TEST.BIN")   -> 4 (NO_FILE)
 [FAT] SKIP: no candidate file found.
-[FAT]   To run pff_open/pff_read/pff_write:
-[FAT]     1. On a PC, format the SD card as FAT32.
-[FAT]     2. Copy a small file (e.g. README.TXT, ~100 bytes)
-[FAT]        to the root of the card.
-[FAT]     3. Re-flash and re-run.
+```
+
+**第 2 次（放好 README.TXT 后重跑）**：
+
+```
+[FAT] ====== Task 4.4: File Open / Read / Write ======
+[FAT] pff_open("README.TXT") -> 0 (OK)
+[FAT] fsize = 157 bytes
+[FAT] pff_read first 157 bytes:
+  48 65 6C 6C 6F 20 42 54 38 39 32 58 41 32 20 66 72 6F 6D 20 50 43 21 0D 0A 54 68 69 73 20 69 73 
+[FAT] pff_write 12 bytes OK
+[FAT] PASS: pff_write bytes verified by pff_read
+
+[FAT] ====== All active tests PASSED ======
 [FAT] Halt. 5ms loop.
 ```
 
-**这是预期行为**——`FR_NO_FILE` 是 Petit FatFs 的标准错误码（值 4），说明 `pff_open` 的整条链路（slice 8字节/3字节拆解 → 根目录扫描 → 32 字节目录项解析 → 簇号计算）正确执行，只是没找到目标文件。
+**判定**：
 
-只要在 SD 卡根目录放一个候选文件后重跑，Task 4.4 就能进入完整三步测试（read → write → read-verify）。
+- `pff_open("README.TXT") -> 0 (`FR_OK`)`：根目录扫描 + 8.3 文件名解析 + 簇号计算 **全部成功**
+- `fsize = 157 bytes`：FAT32 目录项里 4 字节 file size 字段读到正确值
+- `pff_read` 输出的 hex 完全对得上 PC 端放的 `Hello BT892XA2 from PC!\r\nThis is `
+- `pff_write 12 bytes OK`：三阶段 writep 协议（init → 12 字节数据 → finalize）整条链路打通
+- `pff_write bytes verified by pff_read`：扇区级 read-modify-write 验证通过，前 12 字节 = "FAT_TEST_OK_"
+
+### 5.2 端到端验证
+
+把 SD 卡拔回 PC 读 README.TXT，前 12 字节应当是 `FAT_TEST_OK_`，之后才是 `Hello BT892XA2 from PC!` 的剩余部分。如果 PC 端看到的不一样，说明 SD 卡或在 PC 端被改写——可以用 `xxd README.TXT | head` 验证。
 
 ---
 
 ## 6. 任务清单
 
 - [x] Task 4.4 链路验证（pff_open 返回 FR_NO_FILE 而不是崩溃或返回错码，证明目录扫描逻辑通了）
-- [ ] Task 4.4 端到端验证（需要用户手动在 SD 卡根目录放 `README.TXT` 后重跑）
+- [x] Task 4.4 端到端验证（**pff_open OK, pff_read OK, pff_write OK, pff_write 校验 PASS**）
 
 ---
 
 ## 一句话总结
 
 > 把测试文件（README.TXT）预先放进 SD 卡 → 跑 fat_test_run() → 看到 `pff_open OK / pff_read OK / pff_write OK / 验证通过` —— 整条 FAT 协议链（从目录项到 FAT 表到簇链）第一次在 BT892XA2 上跑通。Phase 5 可以直接拿 Petit FatFs 读 wav 文件了。
+
+**Phase 4 完结。**

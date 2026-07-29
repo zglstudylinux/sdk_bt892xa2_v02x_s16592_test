@@ -11,21 +11,20 @@
 |---|---|---|---|
 | 4.1 | 建立 fat_test 目录 | ✅ | [fat_test_01_02.md](fat_test_01_02.md) |
 | 4.2 | 学习 Petit FatFs 开源程序 | ✅ | [fat_test_01_02.md](fat_test_01_02.md) |
-| 4.3 | 完成 Petit FatFs 移植 | ✅ 实测 PASS | [fat_test_01_02.md](fat_test_01_02.md) |
-| 4.4 | 文件打开 / 读写操作 | 🚧 Task 4.4 链路验证 OK（pff_open 返回 FR_NO_FILE），端到端实测待用户放 README.TXT 后重跑 | [fat_test_04.md](fat_test_04.md) |
+| 4.3 | 完成 Petit FatFs 移植 | ✅ **实测 PASS** | [fat_test_01_02.md](fat_test_01_02.md) |
+| 4.4 | 文件打开 / 读写操作 | ✅ **实测 PASS** | [fat_test_04.md](fat_test_04.md) |
 
 ---
 
 ## 2. 整体测试结果（实测 2026-07-29）
 
-跑 `fat_test_run()` 后实际看到的输出（branch_01 上实测）：
+跑 `fat_test_run()` 后实际看到的输出（branch_01 上实测，**2 次**）：
+
+**第 1 次（SD 卡空）**：
 
 ```
 =========================================
   [FAT] BT892XA2 Petit FatFs Test
-  [FAT] SDK V02.00
-  [FAT] SDIO mode, SD0MAP_G3 (PE5/6/7)
-  [FAT] Phase 4: Petit FatFs R0.03a port
 =========================================
 
 [FAT] ====== Task 4.1+4.2+4.3: pff_mount ======
@@ -42,10 +41,34 @@
 [FAT] Halt. 5ms loop.
 ```
 
+**第 2 次（PC 端放 README.TXT 157 字节后重跑）**：
+
+```
+=========================================
+  [FAT] BT892XA2 Petit FatFs Test
+=========================================
+
+[FAT] ====== Task 4.1+4.2+4.3: pff_mount ======
+[FAT] PASS: mounted, fs_type=FAT32
+[FAT]   csize=64 sectors/cluster
+[FAT]   n_fatent=476990 (clusters+2)
+
+[FAT] ====== Task 4.4: File Open / Read / Write ======
+[FAT] pff_open("README.TXT") -> 0 (OK)
+[FAT] fsize = 157 bytes
+[FAT] pff_read first 157 bytes:
+  48 65 6C 6C 6F 20 42 54 38 39 32 58 41 32 20 66 72 6F 6D 20 50 43 21 0D 0A 54 68 69 73 20 69 73 
+[FAT] pff_write 12 bytes OK
+[FAT] PASS: pff_write bytes verified by pff_read
+
+[FAT] ====== All active tests PASSED ======
+[FAT] Halt. 5ms loop.
+```
+
 **判定**：
 
-- Task 4.1+4.2+4.3：✅ **PASS** — `pff_mount` 返回 FR_OK，fs_type=FAT32，csize=64 sectors/cluster（簇大小 32 KB），n_fatent=476990（476988 个可用簇）。SD 卡 8 GB 默认 FAT32。整条移植链路（SD 卡 → bridge → FAT 协议 → 簇定位）打通。
-- Task 4.4：🚧 **SKIP** — `pff_open` 返回 `FR_NO_FILE (= 4)` 是预期行为（SD 卡根目录没有候选文件）。这验证了 **Petit FatFs 的目录扫描逻辑**（拆 8.3 文件名 → 根目录扫描 → 32 字节目录项解析 → 簇号计算）正确执行，只是没找到目标文件。**用户需在 PC 端放 README.TXT 后重跑验证端到端**。
+- ✅ **Task 4.1+4.2+4.3 PASS** — `pff_mount` 返回 FR_OK，fs_type=FAT32，csize=64 sectors/cluster（簇大小 32 KB），n_fatent=476990（476988 个可用簇）。SD 卡 8 GB 默认 FAT32。整条移植链路（SD 卡 → bridge → FAT 协议 → 簇定位）打通。
+- ✅ **Task 4.4 PASS** — `pff_open` 找到 README.TXT 返回 FR_OK；`pff_read` 157 字节 hex dump 与 PC 端\"Hello BT892XA2 from PC!\\r\\nThis is \"完全一致；`pff_write` 12 字节\"FAT_TEST_OK_\"成功（init → 12 字节 → finalize 三阶段协议）；`pff_write bytes verified by pff_read` 校验通过。**整条 FAT 协议链（目录项解析 → 簇链追踪 → 扇区级 read-modify-write）全部在 BT892XA2 上跑通**。
 
 ---
 
@@ -178,9 +201,9 @@ SDK 的 `sd0_read` / `sd0_write` 只能整扇区（512B）。Petit FatFs 走 par
 
 ## 6. Git 历史
 
-Phase 4 整合到 branch_01：
-- `Phase 4: Petit FatFs R0.03a port — pff_mount PASS, file I/O SKIP until user puts README.TXT`
-- 4 轮编译错误修复（typedef guard / 注释 `*/` / 标符 `pf_*` 重命名 / `.diskio_buf` 位置计数器）
+Phase 4 整合到 branch_01（2 个 commit）：
+- `Phase 4: Petit FatFs R0.03a port - pff_mount PASS实测`（初始 port + 4 轮编译错误修复）
+- `Phase 4: Task 4.4 file open/read/write PASS实测`（README.TXT 端到端 PASS + 新手文档）
 
 ---
 
