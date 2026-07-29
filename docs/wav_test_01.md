@@ -139,7 +139,7 @@ wav_test_run()
 | `64 61 74 61` | `data` | 第二个 chunk 是 data |
 | `C3 00 C4 00 ...` | 16-bit PCM | 实际音频数据 |
 
-文件大小 **52.9 MB** = 44100 Hz × 2 ch × 2 B × ~5 秒 ≈ 5 秒立体声 PCM。这跟"一首短歌"的 5 秒预览长度吻合。
+文件大小 **52.9 MB**：按 44100 Hz × 2 ch × 2 B = 176400 B/s 粗估，`52920044 / 176400 ≈ 300 秒 ≈ 5 分钟`的立体声 PCM（一整首歌）。注意头里 `data` 区块声明的长度字段（0x28，本文件是 `C3 00 C4 00`）与文件物理大小的关系、以及播放时以哪个为准，见 [wav_test_02.md](wav_test_02.md) §5.2。
 
 ---
 
@@ -221,7 +221,7 @@ ffmpeg -f lavfi -i "sine=frequency=440:duration=5" \
 | Task 5.1 建 wav_test 目录 | ✅ |
 | Task 5.2 从 TF 卡打开一个 wav 文件 | ✅ **实测 PASS**（TEST.WAV 52.9 MB，PCM 44.1kHz 16-bit 立体声） |
 
-下一步：[Task 5.3 解析 + 播放](wav_test_02.md)（用 `pff_lseek` 跳到 `data` chunk offset，循环 `pff_read` 喂 `obuf_put_samples`）。
+下一步：[Task 5.3 解析 + 播放](wav_test_02.md)（用 `pff_lseek` 跳到 `data` chunk offset，循环 `pff_read` 把 16-bit PCM 帧直接推给 DAC 的 `AUBUFDATA` 寄存器）。
 
 ---
 

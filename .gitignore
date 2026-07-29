@@ -4,6 +4,9 @@
 # Code::Blocks generated dependency file with machine-specific absolute paths
 app/projects/standard/app.depend
 
+# Code::Blocks editor layout (open tabs / cursor positions — per-machine, not source)
+app/projects/standard/app.layout
+
 # IDE / editor
 .vscode/
 .vs/
