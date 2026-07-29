@@ -1,5 +1,6 @@
 #include "include.h"
 #include "../hello_world/hello_world.h"
+#include "../wav_test/wav_test.h"
 
 volatile int pwrkey_detect_flag;            //pwrkey 820K用于复用检测的标志。
 
@@ -171,6 +172,7 @@ void plugin_tmr5ms_isr(void)
     energy_led_level_calc();
 #endif
     //hello_world_tick();   // Phase 2: hello_world 5ms 节拍
+    wav_test_tick();        // [WAV_TEST]  Phase 5: WAV 播放器 5ms 节拍
 }
 
 AT(.com_text.plugin)
