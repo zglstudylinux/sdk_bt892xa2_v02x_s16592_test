@@ -28,6 +28,7 @@
 			<Add directory="hello_world" />
 			<Add directory="tf_test" />
 			<Add directory="fat_test" />
+			<Add directory="wav_test" />
 			<Add directory="../../modules" />
 			<Add directory="../../platform/header" />
 			<Add directory="../../platform/libs" />
@@ -77,6 +78,10 @@
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="fat_test/fat_test.h" />
+		<Unit filename="wav_test/wav_test.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="wav_test/wav_test.h" />
 		<Unit filename="../../platform/3rd-party/i2s/ta5711.c">
 			<Option compilerVar="CC" />
 		</Unit>
