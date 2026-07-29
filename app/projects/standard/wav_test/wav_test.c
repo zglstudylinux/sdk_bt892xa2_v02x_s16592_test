@@ -3,7 +3,7 @@
  *
  * 当前阶段启用：
  *   wav_test_01  工程接入（banner + 5ms tick）
- *   wav_test_02  pff_open("TEST.WAV") 打开固定名 wav
+ *   wav_test_02  pff_open("MUSIC.WAV") 打开固定名 wav
  *
  * 后续 wav_test_03 ~ 07 按需在 wav_test_run() 里逐步 uncomment，
  * 每次只跑一个新增测试，单变量调试。
@@ -15,7 +15,10 @@
 
 #include "include.h"
 #include "wav_test.h"
-#include "pff.h"        /* pff_mount / pff_open / pff_read / pff_lseek (Phase 4) */
+#include "pff.h"            /* pff_mount / pff_open / pff_read / pff_lseek (Phase 4) */
+#include "api_dac.h"        /* dac_spr_set / dac_aubuf_clr / obuf_put_samples (api_dac.h) */
+#include "api_sdadc.h"      /* SPR_48000 / SPR_44100 / ... enum (Hz -> SPR 转换) */
+#include "bsp_sys.h"        /* bsp_sys_unmute() — 唤醒 mute 后的 DAC 输出通路 */
 
 /* ---------------------------------------------------------------------------
  * Petit FatFs 状态对象（与 fat_test 共享同一份移植代码）
@@ -88,13 +91,13 @@ static bool wav_test_banner(void)
 }
 #endif
 
-#if 1   // wav_test_02: pff_open("TEST.WAV") 打开固定名 wav
+#if 1   // wav_test_02: pff_open("MUSIC.WAV") 打开固定名 wav
 /**
  * @brief Task 2: 从 TF 卡中打开一个 wav 文件
  *
  * 复用 Phase 4 已移植的 Petit FatFs 全套 API：
  *   - pff_mount(&s_fs)            — 走通 disk_initialize + BPB 解析
- *   - pff_open("TEST.WAV")        — 按 8.3 SFN 在根目录查找
+ *   - pff_open("MUSIC.WAV")       — 按 8.3 SFN 在根目录查找
  *   - pff_lseek(0) + pff_read()   — peek 前 12 字节确认 RIFF/WAVE 头
  *
  * @return true  打开 + 头 magic 校验通过
@@ -102,7 +105,7 @@ static bool wav_test_banner(void)
  */
 static bool wav_test_open_fixed(void)
 {
-    printf("\n[WAV] ====== wav_test_02: open fixed TEST.WAV ======\n");
+    printf("\n[WAV] ====== wav_test_02: open fixed MUSIC.WAV ======\n");
     printf("[WAV] Pins: SDCMD=PE5  SDCLK=PE6  SDDAT0=PE7  (SDIO, SD0MAP_G3)\n");
 
     /* Step 1: mount the volume (re-uses diskio.c from Phase 4). */
@@ -122,15 +125,15 @@ static bool wav_test_open_fixed(void)
     printf("[WAV]   csize=%u sectors/cluster\n", s_fs.csize);
     printf("[WAV]   n_fatent=%lu (clusters+2)\n", (unsigned long)s_fs.n_fatent);
 
-    /* Step 2: open TEST.WAV. The file must exist at SD root; Petit FatFs
+    /* Step 2: open MUSIC.WAV. The file must exist at SD root; Petit FatFs
      *        does NOT support creating files (see fat_test docs). */
-    fr = pff_open("TEST.WAV");
+    fr = pff_open("MUSIC.WAV");
     if (fr != FR_OK) {
-        printf("[WAV] FAIL: pff_open(\"TEST.WAV\") -> %d (%s)\n", fr, fr_str(fr));
+        printf("[WAV] FAIL: pff_open(\"MUSIC.WAV\") -> %d (%s)\n", fr, fr_str(fr));
         if (fr == FR_NO_FILE) {
-            printf("[WAV]   Hint: TEST.WAV not found at SD root.\n");
-            printf("[WAV]          Copy any .wav file (or rename one) to\n");
-            printf("[WAV]          <SD card root>\\TEST.WAV and re-flash.\n");
+            printf("[WAV]   Hint: MUSIC.WAV not found at SD root.\n");
+            printf("[WAV]          Copy a real .wav file to\n");
+            printf("[WAV]          <SD card root>\\MUSIC.WAV and re-flash.\n");
         }
         return false;
     }
@@ -213,6 +216,43 @@ static inline u16 le16(const u8 *p) { return (u16)(p[0] | (p[1] << 8)); }
 static inline u32 le32(const u8 *p) {
     return (u32)p[0] | ((u32)p[1] << 8) | ((u32)p[2] << 16) | ((u32)p[3] << 24);
 }
+
+/* ---------------------------------------------------------------------------
+ * Hz → SPR 枚举转换（dac_spr_set 接的是 SPR enum，不是 raw Hz）
+ * ---------------------------------------------------------------------------
+ *
+ * api_sdadc.h 的 SPR enum:
+ *   SPR_48000 = 0, SPR_44100 = 1, SPR_38000 = 2, ..., SPR_8000 = 9
+ *
+ * 任何 wav 采样率都要先查表转成 SPR 索引。不在表内的 → 用 SPR_44100 兜底。
+ */
+static u32 hz_to_spr(u32 hz)
+{
+    switch (hz) {
+    case 48000: return SPR_48000;
+    case 44100: return SPR_44100;
+    case 38000: return SPR_38000;
+    case 32000: return SPR_32000;
+    case 24000: return SPR_24000;
+    case 22050: return SPR_22050;
+    case 16000: return SPR_16000;
+    case 12000: return SPR_12000;
+    case 11025: return SPR_11025;
+    case 8000:  return SPR_8000;
+    case 96000: return SPR_96000;
+    case 88200: return SPR_88200;
+    default:    return SPR_44100;  // fallback
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * obuf 喂数 PCM buffer（4 字节对齐，DMA 基线要求）
+ * ---------------------------------------------------------------------------
+ *
+ * 256B 是 Petit FatFs 单次 pff_read 的实际上限（看 pff.c 内部 sect size）。
+ * 改大也没意义，会被拆成多次。256B 够用。
+ */
+static u8 s_pcm[256] __attribute__((aligned(4)));
 
 /**
  * @brief 从 raw 字节解析 RIFF/WAV 头
@@ -335,8 +375,119 @@ static bool wav_test_parse_header(void)
 }
 #endif
 
-#if 0   // wav_test_04: obuf one-shot play (first sound)
-static bool wav_test_play_one_shot(void);
+#if 1   // wav_test_04: obuf one-shot play (first sound)
+/**
+ * @brief wav_test_04: 首次出声 — 喂 ~5 秒音频到 obuf 后退出
+ *
+ * 测试原理：
+ *   1. dac_spr_set(SPR)         — 把 DAC 采样率配到 wav 的 sample_rate
+ *   2. dac_aubuf_clr()           — 清 obuf（防止旧数据残留）
+ *   3. pff_lseek(s_hdr.data_offset) — 跳过头
+ *   4. 喂数 ~1MB（约 5 秒音频），进度打印
+ *
+ * **为什么限制 1MB 而不是整首 52MB**：
+ *   pff_read(256) 一次读 1 个 FAT sector，平均 5~10ms。52MB / 256 = 200K+
+ *   次 read = **数十分钟**。而且 DAC obuf 只有 ~2KB，新数据到达前早就被 DMA
+ *   抽空，根本播不出声音。所以 wav_test_04 只验证"5 秒能出声"就够，剩下的
+ *   完整播放交给 wav_test_05 的 5ms tick 流式喂数。
+ *
+ *   喂完后退出到 wav_test_run() 的 halt 循环，DMA 自己继续 drain obuf，
+ *   不需要 CPU 再做什么。
+ *
+ * 前置：s_hdr 必须已由 wav_test_03 解析好。
+ */
+#define WAV_TEST04_FEED_BYTES   (1024 * 1024)   /* 1 MB ≈ 5 秒 44.1kHz 立体声 */
+
+static bool wav_test_play_one_shot(void)
+{
+    printf("\n[WAV] ====== wav_test_04: obuf one-shot play ======\n");
+    printf("[WAV]   wav sample_rate = %u Hz\n", s_hdr.sample_rate);
+    printf("[WAV]   wav channels    = %u\n", s_hdr.channels);
+    printf("[WAV]   wav data_offset = %u\n", s_hdr.data_offset);
+    printf("[WAV]   wav data_size   = %u bytes (~%u seconds)\n",
+           s_hdr.data_size,
+           s_hdr.data_size / (s_hdr.channels * (s_hdr.bits / 8) * s_hdr.sample_rate));
+    printf("[WAV]   feed limit     = %u bytes (~5 seconds)\n",
+           WAV_TEST04_FEED_BYTES);
+
+    /* Step 0: 唤醒 DAC 输出通路（关键！）
+     *
+     * 开机默认播完 power_on 音后，DAC 会停在 fade_out / mute 状态：
+     *   - sys_cb.dac_sta = 0  (DAC powered off)
+     *   - sys_cb.mute = 0     (mute flag 通常被清)
+     *   - loudspeaker_mute 可能还置位
+     *   - obuf 没有被 DMA 主动 drain
+     *
+     * 解决方案：仿照 bsp_sys_unmute() 的流程，手动打开：
+     *   - sys_cb.dac_sta == 0 → dac_restart() (power on)
+     *   - sys_cb.mute    == 1 → bsp_sys_unmute() (loudspeaker_unmute + dac_fade_in)
+     *
+     * 不调用这个，obuf_put_samples 喂进去的 PCM 永远不会被 DAC 播放。
+     */
+    printf("[WAV] Step 0: wake up DAC output path...\n");
+    if (sys_cb.dac_sta == 0) {
+        printf("[WAV]   dac_sta=0 -> dac_restart()\n");
+        sys_cb.dac_sta = 1;
+        dac_restart();
+    }
+    if (sys_cb.mute) {
+        printf("[WAV]   mute=1 -> bsp_sys_unmute()\n");
+        bsp_sys_unmute();  /* 这一步内部调用 loudspeaker_unmute + dac_fade_in */
+    } else {
+        /* 即便 mute=0，也确保 loudspeaker 解 mute + DAC fade in */
+        printf("[WAV]   explicit loudspeaker_unmute + dac_fade_in\n");
+        bsp_loudspeaker_unmute();
+        dac_fade_in();
+    }
+    /* 确保音量不为 0（防止 dac_init 后 vol=0 听不到） */
+    if (sys_cb.vol == 0) {
+        sys_cb.vol = 8;
+    }
+    dac_set_volume(sys_cb.vol);
+
+    /* Step 1: DAC 采样率匹配 wav */
+    printf("[WAV] Step 1: dac_spr_set(SPR_xxx for %u Hz)...\n", s_hdr.sample_rate);
+    dac_spr_set(hz_to_spr(s_hdr.sample_rate));
+
+    /* Step 2: 清 obuf（重要，防止上一次播放的残留数据） */
+    printf("[WAV] Step 2: dac_aubuf_clr()...\n");
+    dac_aubuf_clr();
+
+    /* Step 3: 跳过 RIFF 头 */
+    printf("[WAV] Step 3: pff_lseek(%u) jump header...\n", s_hdr.data_offset);
+    FRESULT fr = pff_lseek(s_hdr.data_offset);
+    if (fr != FR_OK) {
+        printf("[WAV] FAIL: pff_lseek -> %d (%s)\n", fr, fr_str(fr));
+        return false;
+    }
+
+    /* Step 4: 喂数到 WAV_TEST04_FEED_BYTES 上限就退出。
+     * 进度打印每 256KB 一次，避免用户以为程序卡死。 */
+    printf("[WAV] Step 4: feeding PCM (capped at %u bytes)...\n",
+           WAV_TEST04_FEED_BYTES);
+    UINT br = 0;
+    u32 total = 0;
+    u32 last_print = 0;
+    while (total < WAV_TEST04_FEED_BYTES) {
+        fr = pff_read(s_pcm, sizeof(s_pcm), &br);
+        if (fr != FR_OK || br == 0) break;
+        obuf_put_samples(s_pcm, br);
+        total += br;
+        /* 进度打印：每 256KB 一次（~1.5 秒音频） */
+        if (total - last_print >= 256 * 1024) {
+            printf("[WAV]   fed %u / %u bytes (%u%%)\n",
+                   total, WAV_TEST04_FEED_BYTES,
+                   (total * 100) / WAV_TEST04_FEED_BYTES);
+            last_print = total;
+        }
+    }
+    printf("[WAV] PASS: feed done, total %u bytes (~%u seconds)\n",
+           total,
+           total / (s_hdr.channels * (s_hdr.bits / 8) * s_hdr.sample_rate));
+    printf("[WAV]   (obuf now has data; DMA will drain in background)\n");
+    printf("[WAV]   Listen on 3.5mm headphone jack NOW.\n");
+    return true;
+}
 #endif
 
 #if 0   // wav_test_05: 5ms tick streaming
@@ -372,8 +523,11 @@ void wav_test_run(void)
     if (!wav_test_parse_header())  goto halt; // wav_test_03 ACTIVE
 #endif
 
+#if 1
+    if (!wav_test_play_one_shot()) goto halt; // wav_test_04 ACTIVE
+#endif
+
 #if 0
-    if (!wav_test_play_one_shot()) goto halt;  // wav_test_04
     if (!wav_test_stream_start())  goto halt;  // wav_test_05
     if (!wav_test_keys_init())     goto halt;  // wav_test_06
     if (!wav_test_scan_root())     goto halt;  // wav_test_07
