@@ -1,6 +1,7 @@
 #include "include.h"
 #include "hello_world/hello_world.h"
 #include "tf_test/tf_test.h"
+#include "fat_test/fat_test.h"
 
 const uint8_t *bt_rf_get_param(void)
 {
@@ -39,7 +40,8 @@ int main(void)
 
     bsp_sys_init();
     //hello_world_init();
-    tf_test_run();          //[TF_TEST] Phase 3: 替代 func_run()，跑 TF 卡驱动测试
+    //tf_test_run();       // [TF_TEST]  Phase 3: TF 裸块读 / 写
+    fat_test_run();         // [FAT_TEST] Phase 4: Petit FatFs 移植测试
     return 0;
 }
 
