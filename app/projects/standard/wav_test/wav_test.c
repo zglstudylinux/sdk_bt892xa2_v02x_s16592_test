@@ -173,8 +173,166 @@ static bool wav_test_open_fixed(void)
 }
 #endif
 
-#if 0   // wav_test_03: parse 44-byte RIFF header
-static bool wav_test_parse_header(void);
+#if 1   // wav_test_03: parse 44-byte RIFF header
+/* ---------------------------------------------------------------------------
+ * RIFF/WAV 头结构
+ * ---------------------------------------------------------------------------
+ *
+ * 标准 PCM WAV 的 44 字节布局（little-endian）：
+ *   0..3   "RIFF"
+ *   4..7   file_size - 8 (uint32)
+ *   8..11  "WAVE"
+ *  12..15  "fmt "
+ *  16..19  fmt chunk size (通常 = 16, 可扩展到 18/40)
+ *  20..21  format tag (1 = PCM, 0xFFFE = WAVE_FORMAT_EXTENSIBLE)
+ *  22..23  channels (1 = mono, 2 = stereo)
+ *  24..27  sample rate (Hz)
+ *  28..31  byte rate (sample_rate * channels * bits/8)
+ *  32..33  block align (channels * bits/8)
+ *  34..35  bits per sample
+ *  36..39  "data"
+ *  40..43  data chunk size (bytes)
+ *  44..    raw PCM data
+ *
+ * Phase 5 只支持 PCM (format=1) + 16-bit。
+ */
+typedef struct {
+    u16 format;       // 1 = PCM
+    u16 channels;     // 1 or 2
+    u32 sample_rate;  // Hz
+    u16 bits;         // 16
+    u32 data_size;    // raw PCM bytes
+    u32 data_offset;  // offset in file where data starts
+} wav_hdr_parsed_t;
+
+static wav_hdr_parsed_t s_hdr;
+
+/* 小端 16-bit 读取 */
+static inline u16 le16(const u8 *p) { return (u16)(p[0] | (p[1] << 8)); }
+/* 小端 32-bit 读取 */
+static inline u32 le32(const u8 *p) {
+    return (u32)p[0] | ((u32)p[1] << 8) | ((u32)p[2] << 16) | ((u32)p[3] << 24);
+}
+
+/**
+ * @brief 从 raw 字节解析 RIFF/WAV 头
+ *
+ * @param raw       指向 wav 文件前 raw_size 字节
+ * @param raw_size  raw 缓冲区大小（建议 ≥ 256 字节以覆盖 LIST/JUNK 等附加 chunk）
+ * @return          true = 解析成功且 format=1, bits=16
+ *
+ * 算法：
+ *   1. 验证 "RIFF" + "WAVE" + "fmt "
+ *   2. 读取 fmt chunk fields (channels/sample_rate/bits 等)
+ *   3. **扫描** 找 "data" 标签位置（兼容带 LIST/INFO/JUNK 附加 chunk 的 wav）
+ *   4. 校验 format=1 (PCM) 和 bits=16
+ *
+ * 注：fmt_size 可变（16/18/40），不在本测试限制范围内。
+ */
+static bool wav_parse_header(const u8 *raw, u32 raw_size)
+{
+    if (raw_size < 44) return false;
+    if (memcmp(raw,      "RIFF", 4) != 0) return false;
+    if (memcmp(raw + 8,  "WAVE", 4) != 0) return false;
+    if (memcmp(raw + 12, "fmt ", 4) != 0) return false;
+
+    u32 fmt_size = le32(raw + 16);
+    s_hdr.format      = le16(raw + 20);
+    s_hdr.channels    = le16(raw + 22);
+    s_hdr.sample_rate = le32(raw + 24);
+    s_hdr.bits        = le16(raw + 34);
+
+    if (s_hdr.format != 1) {
+        printf("[WAV]   FAIL: format tag = %u (need 1 = PCM)\n", s_hdr.format);
+        return false;
+    }
+    if (s_hdr.bits != 16) {
+        printf("[WAV]   FAIL: bits = %u (Phase 5 only supports 16-bit)\n",
+               s_hdr.bits);
+        return false;
+    }
+
+    /* Scan for "data" tag (some wav tools insert LIST/INFO/JUNK between fmt
+     * and data). Most PC-generated wavs have data at offset 44 (no extra
+     * chunks). We accept either. */
+    u32 off = 12 + 8 + fmt_size;   // start of next chunk after fmt
+    bool found = false;
+    while (off + 8 <= raw_size) {
+        if (memcmp(raw + off, "data", 4) == 0) {
+            found = true;
+            break;
+        }
+        if (off + 8 > raw_size) break;
+        u32 chunk_size = le32(raw + off + 4);
+        off += 8 + chunk_size;
+        if (chunk_size & 1) off++;   // RIFF chunks are 2-byte aligned
+    }
+    if (!found || off + 8 > raw_size) {
+        printf("[WAV]   FAIL: \"data\" chunk not found in first %u bytes\n",
+               raw_size);
+        return false;
+    }
+    s_hdr.data_offset = off + 8;
+    s_hdr.data_size   = le32(raw + off + 4);
+    return true;
+}
+
+/**
+ * @brief wav_test_03: 解析 44 字节 RIFF 头
+ *
+ * 复用 wav_test_02 已打开的 s_fs（Petit FatFs 单文件系统对象）。
+ * 读首 256 字节足够覆盖标准 44 头 + 常见 LIST/JUNK 附加 chunk。
+ *
+ * @return true  解析成功且格式合规 (PCM 16-bit)
+ */
+static bool wav_test_parse_header(void)
+{
+    printf("\n[WAV] ====== wav_test_03: parse 44-byte RIFF header ======\n");
+
+    /* Step 1: rewind (wav_test_02 left fptr at 12). */
+    FRESULT fr = pff_lseek(0);
+    if (fr != FR_OK) {
+        printf("[WAV] FAIL: pff_lseek(0) -> %d (%s)\n", fr, fr_str(fr));
+        return false;
+    }
+
+    /* Step 2: read first 256 bytes (one FAT cluster worth). */
+    u8 raw[256] __attribute__((aligned(4)));
+    UINT br = 0;
+    fr = pff_read(raw, sizeof(raw), &br);
+    if (fr != FR_OK) {
+        printf("[WAV] FAIL: pff_read(256) -> %d (%s)\n", fr, fr_str(fr));
+        return false;
+    }
+    printf("[WAV] PASS: read %u bytes from file head\n", br);
+
+    /* Step 3: parse. */
+    if (!wav_parse_header(raw, br)) {
+        printf("[WAV] FAIL: header parse failed.\n");
+        return false;
+    }
+
+    /* Step 4: report. */
+    printf("[WAV] PASS: header parsed:\n");
+    printf("[WAV]   format      = %u (1 = PCM)\n",       s_hdr.format);
+    printf("[WAV]   channels    = %u (1 = mono, 2 = stereo)\n",
+           s_hdr.channels);
+    printf("[WAV]   sample_rate = %u Hz\n",             s_hdr.sample_rate);
+    printf("[WAV]   bits        = %u (must be 16)\n",   s_hdr.bits);
+    printf("[WAV]   data_offset = %u (header size)\n",  s_hdr.data_offset);
+    printf("[WAV]   data_size   = %u bytes\n",          s_hdr.data_size);
+    u32 play_seconds = (s_hdr.data_size) /
+                       (s_hdr.channels * (s_hdr.bits / 8) * s_hdr.sample_rate);
+    printf("[WAV]   duration    = ~%u seconds\n",       play_seconds);
+
+    /* Sanity check: data_offset + data_size <= fsize */
+    if ((u32)s_hdr.data_offset + s_hdr.data_size > (u32)s_fs.fsize + 44) {
+        /* data_size 字段可能 > 实际剩余字节（小尾数某些工具不写满），
+         * 仅打印警告，不 fail。 */
+        printf("[WAV]   WARN: data_size > fsize (will stop at EOF).\n");
+    }
+    return true;
+}
 #endif
 
 #if 0   // wav_test_04: obuf one-shot play (first sound)
@@ -210,8 +368,11 @@ void wav_test_run(void)
     if (!wav_test_open_fixed())  goto halt;   // wav_test_02 ACTIVE
 #endif
 
+#if 1
+    if (!wav_test_parse_header())  goto halt; // wav_test_03 ACTIVE
+#endif
+
 #if 0
-    if (!wav_test_parse_header())  goto halt;  // wav_test_03
     if (!wav_test_play_one_shot()) goto halt;  // wav_test_04
     if (!wav_test_stream_start())  goto halt;  // wav_test_05
     if (!wav_test_keys_init())     goto halt;  // wav_test_06
