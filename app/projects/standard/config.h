@@ -52,7 +52,7 @@
  * Module    : 音乐功能配置
  *****************************************************************************/
 #define MUSIC_UDISK_EN                  1   //是否支持播放UDISK
-#define MUSIC_SDCARD_EN                 0   //是否支持播放SDCARD
+#define MUSIC_SDCARD_EN                 1   //是否支持播放SDCARD  [TF_TEST] 启用以编入 sd_gpio_init()
 #define MUSIC_SDCARD1_EN                0   //是否支持播放双卡
 
 #define MUSIC_WAV_SUPPORT               1   //是否支持WAV格式解码
@@ -438,7 +438,7 @@
 /*****************************************************************************
  * Module    : User按键配置 (可以同时选择多组按键)
  *****************************************************************************/
-#define USER_ADKEY                      1           //ADKEY的使用， 0为不使用
+#define USER_ADKEY                      0           //ADKEY的使用， 0为不使用  [TF_TEST] 释放 PE7 给 SD0_DAT0
 #define USER_ADKEY2                     0           //ADKEY2的使用，0为不使用
 #define USER_PWRKEY                     1           //PWRKEY的使用，0为不使用
 #define USER_IOKEY                      0           //IOKEY的使用， 0为不使用
@@ -470,7 +470,7 @@
  *****************************************************************************/
 #define SD_SOFT_DETECT_EN               0           //是否使用软件检测 (SD发命令检测)
 #define SDCLK_MUX_DETECT_SD             1           //是否复用SDCLK检测SD卡
-#define SD0_MAPPING                     SD0MAP_G2   //选择SD0 mapping
+#define SD0_MAPPING                     SD0MAP_G3   //选择SD0 mapping  [TF_TEST] G3=PE5(SDCMD)/PE6(SDCLK)/PE7(SDDAT0)
 #define SD1_MAPPING                     SD0MAP_G3   //选择SD1 mapping
 
 ///通过配置工具选择检测GPIO
@@ -526,12 +526,12 @@
 /*****************************************************************************
  * Module    : SPDIF配置
  *****************************************************************************/
- #define SPDIF_CH                       SPF_PE6_CH4
+ #define SPDIF_CH                       SPF_PA0_CH0   //[TF_TEST] 释放 PE6 给 SD0_CLK
 
 /*****************************************************************************
  * Module    : IRRX配置
  *****************************************************************************/
-#define IRRX_HW_EN                      1           //是否打IRRX硬件模块
+#define IRRX_HW_EN                      0           //是否打IRRX硬件模块  [TF_TEST] 释放 PE6 给 SD0_CLK
 #define IRRX_SW_EN                      0           //是否打开timer capture ir
 #define IR_NUMKEY_EN                    1           //是否打开数字键输入
 #define IR_INPUT_NUM_MAX                999         //最大输入数字9999
@@ -544,8 +544,8 @@
 #define IR_ADDR_7F80_EN                 0
 
 #define IR_CAPTURE_PORT()               {GPIOEDE |= BIT(6); GPIOEPU  |= BIT(6); GPIOEDIR |= BIT(6);}
-#define IRRX_MAPPING                    IRMAP_PE6
-#define TMR3CAP_MAPPING                 TMR3MAP_PE6
+#define IRRX_MAPPING                    IRMAP_PB0   //[TF_TEST] 释放 PE6
+#define TMR3CAP_MAPPING                 TMR3MAP_PB1 //[TF_TEST] 释放 PE6
 
 
 /*****************************************************************************

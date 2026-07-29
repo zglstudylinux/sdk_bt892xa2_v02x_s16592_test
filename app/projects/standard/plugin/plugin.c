@@ -170,7 +170,7 @@ void plugin_tmr5ms_isr(void)
 #if ENERGY_LED_EN
     energy_led_level_calc();
 #endif
-    hello_world_tick();   // Phase 2: hello_world 5ms 节拍
+    //hello_world_tick();   // Phase 2: hello_world 5ms 节拍
 }
 
 AT(.com_text.plugin)

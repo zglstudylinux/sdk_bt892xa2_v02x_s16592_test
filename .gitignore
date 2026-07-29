@@ -1,5 +1,8 @@
 # Build output directories (created by Code::Blocks when rebuilding)
-Output/obj/**
+# Output/obj/**  ← 取消忽略：让所有 Output 下的文件都进 git
+
+# Code::Blocks generated dependency file with machine-specific absolute paths
+app/projects/standard/app.depend
 
 # IDE / editor
 .vscode/

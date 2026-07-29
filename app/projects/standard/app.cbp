@@ -26,6 +26,7 @@
 			<Add directory="port" />
 			<Add directory="plugin" />
 			<Add directory="hello_world" />
+			<Add directory="tf_test" />
 			<Add directory="../../modules" />
 			<Add directory="../../platform/header" />
 			<Add directory="../../platform/libs" />
@@ -57,6 +58,10 @@
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="hello_world/hello_world.h" />
+		<Unit filename="tf_test/tf_test.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="tf_test/tf_test.h" />
 		<Unit filename="../../platform/3rd-party/i2s/ta5711.c">
 			<Option compilerVar="CC" />
 		</Unit>
