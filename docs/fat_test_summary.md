@@ -246,3 +246,25 @@ Phase 5 用 Petit FatFs 读 .wav 文件。需要：
 ---
 
 **Phase 4 完结！🎉 可以开始 Phase 5（WAV 播放器）了。**
+
+---
+
+## 11. 进一步阅读（教程系列指针）
+
+本 Phase 4 全部 Task 的**移植过程 / 实测 log / 单坑分析**见上面 4 个 task 文档。
+
+需要更**系统性**入门或**横向知识**的，请读 [`tutorial_入门/`](tutorial_入门/)：
+
+| 本文件 § | 推荐读 |
+|---|---|
+| §3.1 FAT 文件系统结构 | [`fat入门指南`](fat入门指南.md) + [`05_PetitFatFs源码导读`](tutorial_入门/05_PetitFatFs源码导读.md) §2 |
+| §3.3 Petit FatFs 限制 | [`05_PetitFatFs源码导读`](tutorial_入门/05_PetitFatFs源码导读.md) §8（为何选 Petit）+ §10（如何扩展）|
+| §4.1 符号冲突 + include 顺序 | [`05_PetitFatFs源码导读`](tutorial_入门/05_PetitFatFs源码导读.md) §6 + [`06_踩坑大全`](tutorial_入门/06_踩坑大全.md) §4 坑 F1/F2 |
+| §4.2 partial-sector 缓存 | [`05_PetitFatFs源码导读`](tutorial_入门/05_PetitFatFs源码导读.md) §5 + [`06_踩坑大全`](tutorial_入门/06_踩坑大全.md) §4 坑 F4 |
+| §3.4 与 SDK 自带 FS 对比 | [`05_PetitFatFs源码导读`](tutorial_入门/05_PetitFatFs源码导读.md) §8.3 |
+| §4.3 类型复用 vs 重定义 | [`05_PetitFatFs源码导读`](tutorial_入门/05_PetitFatFs源码导读.md) §6 + §3 |
+| 任意症状排查 | [`06_踩坑大全`](tutorial_入门/06_踩坑大全.md) §8 症状索引表 |
+| 工具链 / 烧录 | [`01_工具链与构建产物`](tutorial_入门/01_工具链与构建产物.md) |
+| 芯片 SFR / GPIO / ADC | [`02_BT892XA2芯片与外设地图`](tutorial_入门/02_BT892XA2芯片与外设地图.md) |
+| 5ms ISR / 消息队列 / WDT | [`03_SDK架构与运行模型`](tutorial_入门/03_SDK架构与运行模型.md) |
+| Phase 4 下一步 | [`07_Phase导航与下一步`](tutorial_入门/07_Phase导航与下一步.md) §4 |

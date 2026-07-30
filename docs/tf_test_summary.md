@@ -270,3 +270,25 @@ Phase 4 用 Petit FatFs 移植文件系统。需要：
 ---
 
 **Phase 3 完结！🎉 可以开始 Phase 4（FAT 文件系统移植）了。**
+
+---
+
+## 11. 进一步阅读（教程系列指针）
+
+本 Phase 3 全部 Task 的**协议过程 / 实测 log / 单坑分析**见上面 7 个 task 文档。
+
+需要更**系统性**入门或**横向知识**的，请读 [`tutorial_入门/`](tutorial_入门/)：
+
+| 本文件 § | 推荐读 |
+|---|---|
+| §3 命令集 / 协议细节 | [`05_PetitFatFs源码导读`](tutorial_入门/05_PetitFatFs源码导读.md) §7（字节序 + 物理层到 FS 层的 6 层图）|
+| §4.1 GPIO 复用 | [`02_BT892XA2芯片与外设地图`](tutorial_入门/02_BT892XA2芯片与外设地图.md) §4-5 + [`06_踩坑大全`](tutorial_入门/06_踩坑大全.md) §2 坑 C1 |
+| §4.2 SD 控制器覆盖 | [`02_BT892XA2芯片与外设地图`](tutorial_入门/02_BT892XA2芯片与外设地图.md) §5（FUNCMCON）+ [`06_踩坑大全`](tutorial_入门/06_踩坑大全.md) §5 坑 SD5 |
+| §4.3 SD 卡 quirk（Superfloppy） | [`06_踩坑大全`](tutorial_入门/06_踩坑大全.md) §5 坑 SD1 |
+| §5.1 BSS 内存限制（13 KB）| [`02_BT892XA2芯片与外设地图`](tutorial_入门/02_BT892XA2芯片与外设地图.md) §1 + [`06_踩坑大全`](tutorial_入门/06_踩坑大全.md) §1 坑 T2 |
+| §5.2 静态 vs 栈 | [`03_SDK架构与运行模型`](tutorial_入门/03_SDK架构与运行模型.md) §8（静态库边界） |
+| §5.3 串口中文乱码 | [`01_工具链与构建产物`](tutorial_入门/01_工具链与构建产物.md) §8（HUART）+ [`02_BT892XA2芯片与外设地图`](tutorial_入门/02_BT892XA2芯片与外设地图.md) §8 |
+| §9.1 Phase 4 前置准备 | [`05_PetitFatFs源码导读`](tutorial_入门/05_PetitFatFs源码导读.md) §1（6 层图）+ [`07_Phase导航与下一步`](tutorial_入门/07_Phase导航与下一步.md) §4 |
+| 任意症状排查 | [`06_踩坑大全`](tutorial_入门/06_踩坑大全.md) §8 症状索引表 |
+| 工具链 / 烧录 | [`01_工具链与构建产物`](tutorial_入门/01_工具链与构建产物.md) |
+| 5ms ISR / 消息队列 | [`03_SDK架构与运行模型`](tutorial_入门/03_SDK架构与运行模型.md) |

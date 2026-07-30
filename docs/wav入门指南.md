@@ -456,3 +456,22 @@ Windows 上用 **Audacity**：生成 → 音调（或导入音频）→ 文件 �
   - [fat入门指南.md](fat入门指南.md) — 先读文件系统，才能读到 WAV
   - [wav_test_01.md](wav_test_01.md) — 打开 WAV + 读 RIFF 头实测
   - [wav_test_02.md](wav_test_02.md) — 解析 + 播放 + 声道打包踩坑实录
+
+---
+
+## 附录 C：教程系列横向指针
+
+本文档侧重 **WAV/RIFF 格式基础 + DAC 调用链**。下面 8 篇教程侧重 **横向嵌入式工程深度**（理解 SDK 架构 / 移植 / 调试）。
+
+| 主题 | 文档 |
+|---|---|
+| 第 1 天 runbook | [`tutorial_入门/00_新手上路清单`](tutorial_入门/00_新手上路清单.md) |
+| 工具链 / DCF / Downloader / xmaker | [`tutorial_入门/01_工具链与构建产物`](tutorial_入门/01_工具链与构建产物.md) |
+| 芯片 SFR / GPIO / ADC | [`tutorial_入门/02_BT892XA2芯片与外设地图`](tutorial_入门/02_BT892XA2芯片与外设地图.md) |
+| **5ms ISR / 消息队列 / WDT / 28 个 api_*.h** | [`tutorial_入门/03_SDK架构与运行模型`](tutorial_入门/03_SDK架构与运行模型.md) |
+| **pwrkey_table / 防抖 / KU/KH/KL / 双开关 / PWR family 陷阱** | [`tutorial_入门/04_按键系统完全指南`](tutorial_入门/04_按键系统完全指南.md) |
+| Petit FatFs / pff.c / diskio.c / 6 层图 | [`tutorial_入门/05_PetitFatFs源码导读`](tutorial_入门/05_PetitFatFs源码导读.md) |
+| **50+ 踩坑目录 + 症状索引表（特别：采样率枚举、暂停不写 0、SD 时钟 ≥8M、47K 裕量阈值）** | [`tutorial_入门/06_踩坑大全`](tutorial_入门/06_踩坑大全.md) |
+| Phase 1-5 入门 + 决策树 | [`tutorial_入门/07_Phase导航与下一步`](tutorial_入门/07_Phase导航与下一步.md) |
+
+特别推荐看 [`tutorial_入门/04_按键系统完全指南`](tutorial_入门/04_按键系统完全指南.md) §8 和 [`tutorial_入门/06_踩坑大全`](tutorial_入门/06_踩坑大全.md) §6 —— 它们是本文档**进阶实战补充**：P/P 长按触发 FUNC_PWROFF 陷阱、暂停写 0 引入 pop、24/32-bit 强压 16-bit 音质差 等。

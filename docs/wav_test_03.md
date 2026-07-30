@@ -511,3 +511,22 @@ const adkey_tbl_t pwrkey_table[6] = {
 | **Task 5.4 按键控制** | ✅ **本文件**（播放列表 + 暂停 + 切歌 + 音量）|
 
 下一步：Phase 5 全部完成，写 `docs/wav_test_summary.md` 总结。
+
+---
+
+## 9. 进一步阅读（教程系列指针）
+
+本文是 Task 5.4 **实例报告**。以下是从本文延伸出去的**参考手册 / 上手指南**，可在 [`docs/tutorial_入门/`](tutorial_入门/) 找到：
+
+| 本文 § | 推荐读 |
+|---|---|
+| §4 系统事件过滤（`0x07xx`）| [`tutorial_入门/03_SDK架构与运行模型.md`](tutorial_入门/03_SDK架构与运行模型.md) §2（消息队列 + 过滤）|
+| §5 按键 pwrkey_table 设计 | [`tutorial_入门/04_按键系统完全指南.md`](tutorial_入门/04_按键系统完全指南.md) §2-3（分压 + table walk）|
+| §5.4 `USER_PWRKEY` 双开关 | [`tutorial_入门/04_按键系统完全指南.md`](tutorial_入门/04_按键系统完全指南.md) §7 |
+| §7.2 WDT 在 func_* 外不喂狗 | [`tutorial_入门/03_SDK架构与运行模型.md`](tutorial_入门/03_SDK架构与运行模型.md) §3 |
+| §7.4 47K 高阻源 0 裕量阈值 | [`tutorial_入门/04_按键系统完全指南.md`](tutorial_入门/04_按键系统完全指南.md) §4（防抖数学）+ [`tutorial_入门/06_踩坑大全.md`](tutorial_入门/06_踩坑大全.md) §2 坑 C2 |
+| §3 LFN 手动过滤 | [`tutorial_入门/05_PetitFatFs源码导读.md`](tutorial_入门/05_PetitFatFs源码导读.md) §4.5 + [`tutorial_入门/06_踩坑大全.md`](tutorial_入门/06_踩坑大全.md) §4 坑 F5 |
+| §7 任意症状排查 | [`tutorial_入门/06_踩坑大全.md`](tutorial_入门/06_踩坑大全.md) §8 症状索引表 |
+| 工具链 / 烧录 | [`tutorial_入门/01_工具链与构建产物.md`](tutorial_入门/01_工具链与构建产物.md) |
+| 芯片 SFR / GPIO / ADC | [`tutorial_入门/02_BT892XA2芯片与外设地图.md`](tutorial_入门/02_BT892XA2芯片与外设地图.md) |
+| Phase 5 下一步 | [`tutorial_入门/07_Phase导航与下一步.md`](tutorial_入门/07_Phase导航与下一步.md) §5 |

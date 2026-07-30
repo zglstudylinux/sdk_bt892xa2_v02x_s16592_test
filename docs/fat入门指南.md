@@ -643,3 +643,22 @@ Phase 4 的代码量：~4 KB（Petit FatFs）+ ~1 KB（diskio.c 桥接），比�
 ---
 
 > **Phase 4 全部完成。** 接下来可以开始 [Phase 5 - WAV 播放器](https://github.com)（用 `pff_open` + `pff_read` 读取 .wav 文件，喂给 DAC 播放）。
+
+---
+
+## 附录 C：教程系列横向指针
+
+本文档侧重**FAT 文件系统本身的格式基础**。下面 8 篇教程侧重**横向嵌入式工程深度**（理解 SDK 架构 / 移植 / 调试）。
+
+| 主题 | 文档 |
+|---|---|
+| 第 1 天 runbook | [`tutorial_入门/00_新手上路清单`](tutorial_入门/00_新手上路清单.md) |
+| 工具链 / DCF / Downloader / xmaker | [`tutorial_入门/01_工具链与构建产物`](tutorial_入门/01_工具链与构建产物.md) |
+| 芯片 SFR / GPIO / ADC | [`tutorial_入门/02_BT892XA2芯片与外设地图`](tutorial_入门/02_BT892XA2芯片与外设地图.md) |
+| 5ms ISR / 消息队列 / WDT / 28 个 api_*.h | [`tutorial_入门/03_SDK架构与运行模型`](tutorial_入门/03_SDK架构与运行模型.md) |
+| pwrkey_table / 防抖 / KU/KH/KL | [`tutorial_入门/04_按键系统完全指南`](tutorial_入门/04_按键系统完全指南.md) |
+| **Petit FatFs 源码导读（pff.c / diskio.c / FRESULT / 6 层图）** | [`tutorial_入门/05_PetitFatFs源码导读`](tutorial_入门/05_PetitFatFs源码导读.md) |
+| **50+ 踩坑目录 + 症状索引表** | [`tutorial_入门/06_踩坑大全`](tutorial_入门/06_踩坑大全.md) |
+| Phase 1-5 入门 + 决策树 | [`tutorial_入门/07_Phase导航与下一步`](tutorial_入门/07_Phase导航与下一步.md) |
+
+特别推荐看 [`tutorial_入门/05_PetitFatFs源码导读`](tutorial_入门/05_PetitFatFs源码导读.md) —— 它是本文档的**源码深度补充**，讲 pff.c 的每个公开函数、`diskio.c` 的桥接、字节序双面性、为何选 Petit FatFs。

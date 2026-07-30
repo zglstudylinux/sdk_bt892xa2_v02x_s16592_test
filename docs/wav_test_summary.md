@@ -151,6 +151,24 @@ Phase 5 留下 3 个明显的"可做但没做"扩展，列在这里给后续 Pha
 
 ---
 
+## 7. 进一步阅读（教程系列指针）
+
+本 Phase 5 全部 Task 的**操作步骤 / 实测 log / 单坑分析**见上面 4 个 task 文档。
+
+需要更**系统性**入门或**横向知识**的，请读 [`tutorial_入门/`](tutorial_入门/)：
+
+| 主题 | 推荐读 |
+|---|---|
+| 工具链 / 烧录 / xmaker | [`01_工具链与构建产物`](tutorial_入门/01_工具链与构建产物.md) |
+| 芯片 SFR / GPIO / ADC 读值 | [`02_BT892XA2芯片与外设地图`](tutorial_入门/02_BT892XA2芯片与外设地图.md) |
+| 5ms ISR / 消息队列 / WDT / func_run | [`03_SDK架构与运行模型`](tutorial_入门/03_SDK架构与运行模型.md) |
+| pwrkey_table / 防抖 / KU/KH/KL / 双开关 | [`04_按键系统完全指南`](tutorial_入门/04_按键系统完全指南.md) |
+| pff.c / diskio.c / FRESULT / adapter 6 层图 | [`05_PetitFatFs源码导读`](tutorial_入门/05_PetitFatFs源码导读.md) |
+| 任何踩坑第一件事查 | [`06_踩坑大全`](tutorial_入门/06_踩坑大全.md) §8 症状索引表 |
+| Phase 1-5 入门 + 下一步 | [`07_Phase导航与下一步`](tutorial_入门/07_Phase导航与下一步.md) |
+
+---
+
 ## 6. 一句话总结
 
 > Phase 5 一次性跑通 SD 卡 → Petit FatFs → RIFF parser → AUBUFDATA → DAC 喇叭 全链路，按键控制 3 键全 PASS；
