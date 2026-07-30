@@ -4,7 +4,7 @@
  * === Phase 5 Part 1 (commit 6716272) ===
  *   - pff_mount() + pff_open() + 64-byte RIFF header read + hex dump
  *
- * === Phase 5 Part 2 (v8) ===
+ * === Phase 5 Part 2 (v8, commit 1fd8863) ===
  *   - Walk RIFF chunks to find 'data' chunk
  *   - Validate fmt chunk: wFormatTag == 1 (PCM), wBitsPerSample == 16
  *   - Set DAC sample rate via dac_spr_set() (auto from WAV header)
@@ -16,12 +16,26 @@
  *     XOR 0x8000; that fed one physical channel constant zeros and
  *     mangled the other. See the Task 5.3 comment for the full autopsy.
  *
- * Phase 5 Part 3 (next commit) will add KU_PLAY / KU_NEXT / KU_PREV /
- * KU_VOL_UP / KU_VOL_DOWN via the SDK message queue.
+ * === Phase 5 Part 3 (this commit — Task 5.4) ===
+ *   - flip PF_USE_DIR=1 in fat_test/pffconf.h (committed in same changeset)
+ *   - enumerate *.WAV in SD card root via pff_opendir / pff_readdir
+ *     (8.3 SFN only; AM_LFN / AM_DIR / AM_VOL entries skipped)
+ *   - playlist scheduler: outer loop wraps last -> first and first -> last
+ *   - KEY CONTROLS (via msg_dequeue() from the 5 ms ISR — see
+ *     bsp_sys.c:347 + bsp_key.c:980):
+ *       KU_PLAY (or KU_PLAY_PWR_USER_DEF)  -> pause / resume toggle
+ *       KU_NEXT / KU_NEXT_VOL_UP / ...     -> next song (wraps last -> first)
+ *       KU_PREV / KU_PREV_VOL_DOWN / ...   -> prev song (wraps first -> last)
+ *       KU_VOL_UP / KH_VOL_UP / ...        -> bsp_set_volume(bsp_volume_inc())
+ *       KU_VOL_DOWN / KH_VOL_DOWN / ...    -> bsp_set_volume(bsp_volume_dec())
+ *   - pause semantics: skip AUBUFDATA writes while paused, but keep
+ *     draining msg_dequeue() (delay_us(200) between polls so the 5 ms
+ *     ISR stays fed) — matches the SDK template in test/参考.md:12
  *
  * BSS budget:
- *   - 64-byte RIFF header buffer (BSS)
+ *   - 64-byte RIFF header buffer
  *   - 512-byte PCM streaming buffer (aram .wav_buf)
+ *   - playlist: 16 entries x 13 chars = 208 B + small index state
  */
 
 #include "include.h"
@@ -47,6 +61,32 @@ static u8 s_header[64] __attribute__((aligned(4)));
 
 /* 512-byte PCM streaming buffer (NOT BSS - placed in aram .wav_buf). */
 static u8 s_pcm[512] __attribute__((aligned(4), section(".wav_buf")));
+
+/* -------------------------------------------------------------------------
+ * Task 5.4: playlist state
+ *
+ * Each entry holds the 8.3 SFN as pff_readdir() returns it
+ * (uppercased body; PF_USE_LCC=0 in pffconf.h so we keep the case as-is
+ *  but match .WAV case-insensitively below).
+ *
+ * Playlist order is FAT table order, NOT alphabetical. The user picks
+ * playback order by choosing which file the FAT writer placed first.
+ * ------------------------------------------------------------------------- */
+#define WAV_MAX_FILES    16
+
+typedef struct {
+    u8  fname[13];          /* 8.3 + '\0', as filled by get_fileinfo() */
+    u32 fsize;              /* bytes (from FILINFO) */
+} wav_entry_t;
+
+static wav_entry_t s_pl[WAV_MAX_FILES];
+static u8  s_total;             /* number of WAVs discovered (0..WAV_MAX_FILES) */
+static u8  s_index;             /* currently playing slot (0..s_total-1) */
+
+/* Run-state flags consulted inside the 512-byte push loop. */
+static volatile bool s_paused;
+static volatile bool s_should_next;
+static volatile bool s_should_prev;
 
 /* -------------------------------------------------------------------------
  * Helpers
@@ -88,6 +128,16 @@ static void print_fourcc(const u8 *p)
     }
 }
 
+/* Case-insensitive "WAV" extension test. p points at the dot or
+ * just past the filename body (i.e. at the 4th char of the extension). */
+static bool ext_is_wav(const char *p)
+{
+    return (p[0] == 'W' || p[0] == 'w') &&
+           (p[1] == 'A' || p[1] == 'a') &&
+           (p[2] == 'V' || p[2] == 'v') &&
+           (p[3] == 0);
+}
+
 /* Convert a 16-bit unsigned sample rate from the WAV header to the
  * SDK's dac_spr_set() enum (api_sdadc.h:25-42). Returns 0xFFFF if
  * unsupported. */
@@ -109,37 +159,205 @@ static u16 wav_sample_rate_to_spr(u32 hz)
 }
 
 /* -------------------------------------------------------------------------
- * Task 5.1 + 5.2: open a WAV file and read the RIFF header
+ * Task 5.4.2: Build playlist by walking the SD card root directory.
+ *
+ * pf_opendir(path) with an empty path = the root dir
+ *   (see pff.c:761-764 follow_path's null-path handling).
+ *
+ * FILINFO.fattrib mask bits (pff.h:177): AM_LFN=0x0F, AM_DIR=0x10,
+ * AM_VOL=0x08. dir_read() (pff.c:639) already filters 0xE5, '.' and
+ * AM_VOL, but does NOT filter AM_LFN — we must do it ourselves so a
+ * long-named file (e.g. Windows "System Volume Information") doesn't
+ * sneak into the playlist with garbage fname bytes.
+ *
+ * FAT ordering: files come out in whatever order the directory table
+ * stores them. We don't sort — that would need a working buffer and
+ * isn't worth the complexity for a 16-entry list.
+ * ------------------------------------------------------------------------- */
+static u8 wav_test_build_playlist(void)
+{
+    DIR     dj;
+    FILINFO fno;
+    FRESULT fr;
+
+    s_total = 0;
+    s_index = 0;
+
+    fr = pff_mount(&s_fs);
+    if (fr != FR_OK) {
+        printf("[WAV] FAIL: pff_mount -> %d (%s)\n", fr, fr_str(fr));
+        return 0;
+    }
+
+    /* Empty path = root dir (pff.c:761-764). */
+    fr = pff_opendir(&dj, "");
+    if (fr != FR_OK) {
+        printf("[WAV] FAIL: pff_opendir(\"\") -> %d (%s)\n", fr, fr_str(fr));
+        return 0;
+    }
+
+    while (s_total < WAV_MAX_FILES) {
+        fr = pff_readdir(&dj, &fno);
+        if (fr != FR_OK) {
+            printf("[WAV] FAIL: pff_readdir -> %d (%s)\n", fr, fr_str(fr));
+            break;
+        }
+        if (fno.fname[0] == 0) {
+            break;                       /* end of directory */
+        }
+        if (fno.fattrib & (AM_LFN | AM_DIR | AM_VOL)) {
+            continue;                    /* skip LFN, subdir, volume label */
+        }
+        /* find the extension (4 chars including the dot) */
+        const char *dot = 0;
+        for (u8 i = 0; fno.fname[i]; i++) {
+            if (fno.fname[i] == '.') { dot = &fno.fname[i + 1]; break; }
+        }
+        if (!dot || !ext_is_wav(dot)) {
+            continue;                    /* not a .WAV */
+        }
+        /* accept */
+        for (u8 i = 0; i < 13; i++) {
+            s_pl[s_total].fname[i] = (u8)fno.fname[i];
+        }
+        s_pl[s_total].fsize = fno.fsize;
+        s_total++;
+    }
+
+    /* pff_readdir clears fno.fname[0] on end-of-dir; no explicit close needed. */
+    return s_total;
+}
+
+/* -------------------------------------------------------------------------
+ * Task 5.4.5: dispatch one key / system event from msg_dequeue().
+ *
+ * The mapping mirrors two SDK templates:
+ *   - app/projects/standard/message/msg_music.c:6-48  (play / next / prev)
+ *   - app/platform/functions/func.c:210-296          (volume up / down)
+ *
+ * NOTE on combo codes: this build's config only enables PWRKEY
+ * (USER_PWRKEY=1; USER_ADKEY=0 because PE5/6/7 belong to the SD card).
+ * pwrkey_table[] (port_key.c:158) maps ADC thresholds to *combo* key IDs
+ * — short-press of the 3.9K-resistor button, e.g., is KU_NEXT_VOL_UP
+ * (short=next, long=VOL+). We accept BOTH the clean KU_NEXT/PREV and
+ * the combo KU_NEXT_VOL_UP/PREV_VOL_DOWN so the same code works whether
+ * keys are wired via ADKEY (clean) or PWRKEY (combo).
+ *
+ * No fall-through to func_message(): wav_test is a test harness, not a
+ * music mode. Volume is set via the bsp_*_volume() helpers directly.
+ * ------------------------------------------------------------------------- */
+static void wav_test_handle_key(u16 msg)
+{
+    /* The msg queue mixes real key events with periodic system events:
+     *   - real keys are in 0x000..0xFFF (base key IDs 0x00..0xEF plus
+     *     action flag bits KEY_SHORT_UP=0x800 / KEY_LONG=0xA00 /
+     *     KEY_HOLD=0xE00 from bsp_key.h:11-14)
+     *   - system events live in 0x7D0..0x7FF (EVT_SD_INSERT=0x7FD,
+     *     MSG_SYS_500MS=0x7FE, MSG_SYS_1S=0x7FF, EVT_SD_REMOVE=0x7FC,
+     *     EVT_BT_UPDATE_STA=0x7D0, etc.)
+     *
+     * Without this filter the user would see "[WAV] key 0x07FE -> " 2x/s
+     * for the 500 ms timer and 1x/s for the 1 s timer — and crucially,
+     * they'd never see real KU_* codes because the periodic events would
+     * dominate the printf log. (Confirmed via 2026-07-30 debug print.)
+     *
+     * Drop anything outside the key range silently. We do NOT re-enqueue
+     * because we're the sole consumer of msg_dequeue() — there's no
+     * other code in the wav_test module that needs these events. */
+    if (msg < 0x0100 || (msg & 0xFF00) == 0x0700) {
+        return;
+    }
+    /* Debug print ONLY for things we will actually try to dispatch — so
+     * the log shows real keys, not periodic timer noise. */
+    printf("[WAV] key 0x%04X -> ", msg);
+
+    switch (msg) {
+    /* ---- Play / pause ----
+     * pwrkey_table[] (port_key.c:158) maps S5 (0Ω) to KEY_PLAY (0x20),
+     * not KEY_PLAY_PWR_USER_DEF — using a PWR-family id would mean
+     * KLH_PLAY_PWR_USER_DEF fires func.c:302's FUNC_PWROFF (1.2 s
+     * long-press = power off), i.e. "press P/P then it reboots".
+     * We still accept KU_PLAY_USER_DEF / KU_PLAY_PWR_USER_DEF in case
+     * the table is later switched for a different board. */
+    case KU_PLAY:
+    case KU_PLAY_USER_DEF:
+    case KU_PLAY_PWR_USER_DEF:
+        s_paused = !s_paused;
+        printf("%s\n", s_paused ? "pause" : "resume");
+        break;
+
+    /* ---- Volume up ----
+     * Not on the user's 3-key teaching board, but accept the standard
+     * VOL+ codes in case the table is later swapped to a 5-key config
+     * (KU_VOL_UP_NEXT/PREV/DOWN are the "combo" short=VOL+ / long=NEXT
+     * variants; KL_/KH_ are long-press and auto-repeat). */
+    case KU_VOL_UP:
+    case KU_VOL_UP_NEXT:
+    case KU_VOL_UP_PREV:
+    case KU_VOL_UP_DOWN:
+    case KL_VOL_UP:
+    case KH_VOL_UP:
+        bsp_set_volume(bsp_volume_inc(sys_cb.vol));
+        break;
+
+    /* ---- Volume down ---- */
+    case KU_VOL_DOWN:
+    case KU_VOL_DOWN_PREV:
+    case KU_VOL_DOWN_NEXT:
+    case KL_VOL_DOWN:
+    case KH_VOL_DOWN:
+        bsp_set_volume(bsp_volume_dec(sys_cb.vol));
+        break;
+
+    /* ---- Next / prev ----
+     * pwrkey_table[] maps S6 (12K) -> KEY_PREV (0x40) and
+     * S7 (47K) -> KEY_NEXT (0x60). Plain macros, no combo meaning. */
+    case KU_NEXT:
+    case KU_NEXT_VOL_UP:
+        s_should_next = true;
+        break;
+
+    case KU_PREV:
+    case KU_PREV_VOL_DOWN:
+        s_should_prev = true;
+        break;
+
+    default:
+        /* Unrecognized key code in the key range (we filtered system
+         * events earlier). Could be a long-press KL_NEXT_VOL_UP or a
+         * KEY_NUM_x we don't bind. Just drop — the user's 3 keys are
+         * all in the switch above. */
+        printf("(unhandled)\n");
+        break;
+    }
+}
+
+/* -------------------------------------------------------------------------
+ * Task 5.1 + 5.2: open the currently selected playlist entry
+ *                  (s_pl[s_index]) and read its 64-byte RIFF header.
+ *
+ * Phase 5 Part 3 changes the contract: instead of trying a fixed list of
+ * candidate names, we open s_pl[s_index].fname. The caller (wav_test_run)
+ * builds the playlist once, then drives the outer index loop.
  * ------------------------------------------------------------------------- */
 static bool wav_test_open_and_inspect(void)
 {
-    static const char *candidates[] = {
-        "PLAY.WAV", "TEST.WAV", "SAMPLE.WAV", "MUSIC.WAV",
-    };
+    const char *name = (const char *)s_pl[s_index].fname;
 
-    printf("\n[WAV] ====== Task 5.1+5.2: Open WAV + Read RIFF Header ======\n");
+    printf("\n[WAV] ====== Open + inspect [%u/%u] %s ======\n",
+           (unsigned)s_index + 1, (unsigned)s_total, name);
 
+    /* Re-mount each file — cheap, and Petit FatFs holds no persistent
+     * mount state across opens. */
     FRESULT fr = pff_mount(&s_fs);
     if (fr != FR_OK) {
         printf("[WAV] FAIL: pff_mount -> %d (%s)\n", fr, fr_str(fr));
         return false;
     }
-    printf("[WAV] PASS: mounted, fs_type=%d\n", (int)s_fs.fs_type);
 
-    const char *picked = NULL;
-    for (u32 i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
-        fr = pff_open(candidates[i]);
-        printf("[WAV] pff_open(\"%s\") -> %d (%s)\n",
-               candidates[i], fr, fr_str(fr));
-        if (fr == FR_OK) { picked = candidates[i]; break; }
-    }
-    if (!picked) {
-        printf("[WAV] SKIP: no candidate WAV file found.\n");
-        printf("[WAV]   To run wav_test:\n");
-        printf("[WAV]     1. On a PC, format the SD card as FAT32.\n");
-        printf("[WAV]     2. Copy a 16-bit PCM .wav file to the root, named\n");
-        printf("[WAV]        one of: PLAY.WAV / TEST.WAV / SAMPLE.WAV / MUSIC.WAV\n");
-        printf("[WAV]     3. Re-flash and re-run.\n");
+    fr = pff_open(name);
+    if (fr != FR_OK) {
+        printf("[WAV] FAIL: pff_open(\"%s\") -> %d (%s)\n", name, fr, fr_str(fr));
         return false;
     }
 
@@ -234,6 +452,18 @@ static bool wav_test_open_and_inspect(void)
  * A stereo WAV frame on disk is [L_lo L_hi R_lo R_hi] little-endian,
  * which reinterpreted as a LE u32 is already (R<<16)|L — the exact DAC
  * layout — so stereo needs no per-sample work at all.
+ *
+ * Phase 5 Part 3 (Task 5.4) additions:
+ *   - per-chunk msg_dequeue() drain (once every 512 bytes pushed).
+ *     Key scanning runs from the 5 ms ISR (bsp_sys.c:347 + bsp_key.c:980)
+ *     independently of this loop, so messages queue up while we push.
+ *   - s_paused flag: when set, skip AUBUFDATA writes but keep polling
+ *     msg_dequeue() with delay_us(200) between polls so the ISR stays fed.
+ *   - s_should_next / s_should_prev: when set by wav_test_handle_key(),
+ *     we break out of the push loop early (at the next chunk boundary —
+ *     never in the middle of a chunk, to avoid mixing PCM from two files).
+ *   - return value: true = played through to EOF; false = interrupted
+ *     by next/prev (or a fatal error). Outer scheduler inspects this.
  */
 static bool wav_test_parse_and_play(void)
 {
@@ -388,8 +618,63 @@ static bool wav_test_parse_and_play(void)
     u32 frames_pushed = 0;
     u32 last_print_tick = tick_get();
     u32 start_tick = tick_get();
+    u32 last_wdt_tick = start_tick;
+
+    /* Per-song clean state: each new file starts playing, not paused,
+     * not requesting skip. The outer scheduler may have already toggled
+     * pause mid-file; we only reset here on entry. */
+    s_paused        = false;
+    s_should_next   = false;
+    s_should_prev   = false;
 
     while (bytes_left > 0) {
+        /* --- WDT clear (run anywhere the SDK's func_process() would
+         * normally run) ---
+         * The SDK's normal main loop (func_bt / func_music / ...) calls
+         * WDT_CLR() in func_process() at app/platform/functions/func.c:128.
+         * wav_test_run() runs OUTSIDE that framework, so the WDT would
+         * fire after ~1-2 s of operation and reset the chip — symptom:
+         * "press P/P, pause works, then it reboots". Clearing every 100 ms
+         * here keeps the watchdog happy during both active playback and
+         * paused idle (delay_us(200) below). */
+        {
+            u32 now = tick_get();
+            if ((u32)(now - last_wdt_tick) >= 100) {
+                WDT_CLR();
+                last_wdt_tick = now;
+            }
+        }
+
+        /* --- Drain one message per chunk ---
+         * The 5 ms ISR enqueues keys independently of this loop, so
+         * msg_dequeue() returns whatever is pending right now. NO_MSG
+         * (= 0) means the queue is empty — fall through and push frames. */
+        {
+            u16 msg = msg_dequeue();
+            if (msg != NO_MSG) {
+                wav_test_handle_key(msg);
+            }
+        }
+
+        /* --- Honour pause: skip the push, but keep polling keys ---
+         * We deliberately do NOT push silence into AUBUFDATA while
+         * paused: that would inject a step discontinuity into the DAC
+         * when we resume. delay_us(200) keeps the 5 ms ISR fed — the
+         * ISR runs once per 5 ms regardless of what we do here, so any
+         * delay up to a few ms is fine. */
+        if (s_paused) {
+            delay_us(200);
+            continue;
+        }
+
+        /* --- Next/prev requested: exit at chunk boundary ---
+         * We DO NOT break in the middle of a chunk — that would mix PCM
+         * from two files. Reading + pushing the current chunk first
+         * keeps the audio clean. */
+        if (s_should_next || s_should_prev) {
+            break;
+        }
+
         UINT n = 0;
         const u32 want = (bytes_left < sizeof(s_pcm)) ? bytes_left
                                                         : sizeof(s_pcm);
@@ -445,12 +730,33 @@ static bool wav_test_parse_and_play(void)
     printf("[WAV] pushed %lu bytes (%lu frames) in %lu ms\n",
            (unsigned long)total_pushed, (unsigned long)frames_pushed,
            (unsigned long)elapsed_ms);
+
+    /* Differentiate natural end-of-file from a next/prev interrupt so
+     * the outer scheduler (and the serial log) can tell them apart. */
+    if (s_should_next || s_should_prev) {
+        printf("[WAV] interrupted (%s)\n",
+               s_should_next ? "next" : "prev");
+        return false;
+    }
     printf("[WAV] Phase 5 Part 2 PASS - file played.\n");
     return true;
 }
 
 /* -------------------------------------------------------------------------
- * Entry point - Part 1 + Part 2 (Part 3 will follow)
+ * Entry point - Part 3 outer scheduler
+ *
+ * Two-level structure (see plan: shimmying-pondering-graham.md):
+ *   OUTER (this fn):  build playlist once, then loop "play this slot,
+ *                     advance s_index when done or interrupted"
+ *   INNER (parse_and_play): drain msg_dequeue() once per 512-byte chunk;
+ *                           honour pause / next / prev flags
+ *
+ * Wrap-around:
+ *   next:  s_index = (s_index + 1) % s_total;   last -> first
+ *   prev:  s_index = (s_index == 0) ? s_total-1 : s_index-1
+ *
+ * On any single-file fatal error we advance to the next track rather
+ * than halting — keeps the rest of the playlist audible.
  * ------------------------------------------------------------------------- */
 void wav_test_run(void)
 {
@@ -460,13 +766,86 @@ void wav_test_run(void)
     printf("  [WAV] SDK V%02x.%02x\n",
            (SDK_VERSION >> 8) & 0xff, SDK_VERSION & 0xff);
     printf("  [WAV] SDIO mode, SD0MAP_G3 (PE5/6/7)\n");
-    printf("  [WAV] Phase 5 Part 1+2: open + parse + play\n");
+    printf("  [WAV] Phase 5 Part 3: playlist + key controls\n");
     printf("=========================================\n");
 
-    if (!wav_test_open_and_inspect()) goto halt;
-    if (!wav_test_parse_and_play())  goto halt;
+    /* --- Build playlist (Task 5.4.2) --- */
+    printf("[WAV] msg queue ready (USER_PWRKEY=%d)\n", USER_PWRKEY);
+    u8 n = wav_test_build_playlist();
+    if (n == 0) {
+        printf("[WAV] SKIP: no *.WAV files in SD card root.\n");
+        printf("[WAV]   To run wav_test:\n");
+        printf("[WAV]     1. Format the SD card as FAT32.\n");
+        printf("[WAV]     2. Copy one or more 16-bit PCM .wav files to\n");
+        printf("[WAV]        the root with 8.3 short names (PLAY.WAV,\n");
+        printf("[WAV]        SONG01.WAV, etc. — no LFN).\n");
+        printf("[WAV]     3. Re-flash and re-run.\n");
+        goto halt;
+    }
+    printf("[WAV] playlist: %u song(s)\n", (unsigned)n);
+    for (u8 i = 0; i < n; i++) {
+        printf("[WAV]   [%u] %-12s  %lu bytes\n",
+               (unsigned)i + 1, (const char *)s_pl[i].fname,
+               (unsigned long)s_pl[i].fsize);
+    }
+    printf("[WAV] Controls: KU_PLAY=pause/resume, KU_NEXT/PREV=skip, KU_VOL_UP/DOWN=volume\n");
 
-    printf("\n[WAV] ====== All active tests PASSED ======\n");
+    /* --- Outer scheduler --- */
+    u32 last_wdt_tick = tick_get();
+    for (;;) {
+        /* WDT clear — same reason as the inner push loop: this is the
+         * only "main loop" the WDT sees in our test, and we want to
+         * keep the chip alive between songs and during open/inspect. */
+        {
+            u32 now = tick_get();
+            if ((u32)(now - last_wdt_tick) >= 100) {
+                WDT_CLR();
+                last_wdt_tick = now;
+            }
+        }
+
+        printf("\n[WAV] --- playing slot %u/%u ---\n",
+               (unsigned)s_index + 1, (unsigned)n);
+
+        /* Reset per-song state. Important: parse_and_play will reset
+         * s_paused/s_should_* again internally, but we set them here
+         * so the outer advance logic below sees clean values. */
+        s_should_next = false;
+        s_should_prev = false;
+        s_paused      = false;
+
+        bool ok_inspect = wav_test_open_and_inspect();
+        bool ok_play    = ok_inspect ? wav_test_parse_and_play() : false;
+
+        /* Advance logic. Key insight: BOTH natural EOF and a NEXT press
+         * advance by 1; BOTH an error and a PREV press go elsewhere. So
+         * a "user-requested skip" should win over the natural fallback,
+         * but the actual advance is the same in two of three cases.
+         * Cleanest is to compute the target index first, then print. */
+        u8 from = s_index;
+        u8 to;
+        if (s_should_next) {
+            to = (u8)((s_index + 1) % n);
+        } else if (s_should_prev) {
+            to = (u8)(s_index == 0 ? n - 1 : s_index - 1);
+        } else {
+            /* Natural EOF or unrecoverable error: still move on so the
+             * rest of the playlist keeps playing. */
+            to = (u8)((s_index + 1) % n);
+        }
+        s_index = to;
+        const char *why;
+        if (s_should_next)        why = "next";
+        else if (s_should_prev)   why = "prev";
+        else if (ok_play)         why = "played";
+        else if (ok_inspect)      why = "skipped";
+        else                      why = "skipped";
+        printf("[WAV] slot %u -> %u (%s)\n",
+               (unsigned)from + 1, (unsigned)s_index + 1, why);
+
+        (void)ok_inspect;
+        (void)ok_play;
+    }
 
 halt:
     printf("[WAV] Halt. 5ms loop.\n");
