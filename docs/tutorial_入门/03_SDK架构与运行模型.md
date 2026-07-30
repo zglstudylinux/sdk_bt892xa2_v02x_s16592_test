@@ -887,3 +887,14 @@ enum {
 - [ ] 看不到的 lib*.a：**用 SDK 提供的 API**，不改二进制
 
 如果 6 项 ✅——你已经能"加新 func_* 模式 / 改现有 mode / 加按键 handler / 修崩 / 修狗"了。
+
+---
+
+## 进一步阅读
+
+| 想深入理解 | 跳到 |
+|---|---|
+| 整个 SDK 的分层架构（HAL/OSAL/Driver/App 6 层） | [08_SDK分层架构 §6 完整 func_run](08_SDK分层架构HAL_OSAL_Driver_App.md) |
+| 完整按键按下到 handler 的 15 步逐层追踪 | [08_SDK分层架构 §7.1](08_SDK分层架构HAL_OSAL_Driver_App.md) |
+| 5 ms ISR 在 6 层模型里属于哪一层 | [08_SDK分层架构 §2.2](08_SDK分层架构HAL_OSAL_Driver_App.md) |
+| "透明 HAL" 怎么暴露 SFR | [08_SDK分层架构 §3](08_SDK分层架构HAL_OSAL_Driver_App.md) |
