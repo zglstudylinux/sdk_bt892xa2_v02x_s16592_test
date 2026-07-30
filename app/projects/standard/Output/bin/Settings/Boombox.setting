@@ -118,7 +118,7 @@
         <add key="auxl_sel" value="4" />
         <add key="auxr_sel" value="4" />
         <add key="linein_det_iosel" value="0" />
-        <add key="user_pwrkey_en" value="False" />
+        <add key="user_pwrkey_en" value="True" />
         <add key="user_adkey_en" value="False" />
         <add key="user_adkey2_en" value="False" />
         <add key="user_iokey_en" value="False" />

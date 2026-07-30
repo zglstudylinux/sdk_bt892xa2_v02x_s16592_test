@@ -492,6 +492,7 @@ SECTIONS
     .aram_music __aram_vma (NOLOAD) : {
         *(.mp3buf.dec)
         . = 0x1000;
+        *(.wav_buf)                /* Phase 5 wav_test: 512-byte PCM streaming buffer */
         *(.pff.scan.tempbuf)
         *(.pff_buf*)
         *(.lrc_buf*)

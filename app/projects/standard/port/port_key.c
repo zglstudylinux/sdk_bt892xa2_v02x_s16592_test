@@ -154,14 +154,40 @@ const adkey_tbl_t adkey2_table[] = {
 
 #if USER_PWRKEY
 ///最多支持5个按键。数组元数总数请保持不变。不需要的按键改为NO_KEY
+///
+/// === BT892XA2 教学板（TP17/2PWRKEY via 0Ω/12K/47K 电阻分压）实测重排 ===
+/// 原始表注释写的是 1.5K/3.9K/15K/33K（典型 ADKEY 板），但本板只有 3 颗按键：
+///   S5 P/P  : 0Ω (直通 GND)        → ADC ≈ 0x00..0x0A
+///   S6 PREV : 12KΩ 下拉到 GND      → 实测 ADC ≈ 0x8B（10K 内上拉 + 12K 外下拉）
+///   S7 NEXT : 47KΩ 下拉到 GND      → 实测 ADC ≈ 0xD3（10K 内上拉 + 47K 外下拉）
+///
+/// 由于 12K/47K 的 ADC 落点直接落在原表 slot 3/4 区间，我们让 slot 1/2 / slot 3/4
+/// 各自指向单一动作（key id 是 plain 短按宏：KU_PLAY=0x820 / KU_PREV=0x840 /
+/// KU_NEXT=0x860），让 wav_test 的 dispatcher 直接识别 play/pause / 上一曲 / 下一首。
+///
+/// 注意：表项 .adc_val 是【窗口上界】——走表规则是
+///   while (wko_val > table[num].adc_val) num++;
+/// 也就是说，adc_val = X 时，ADC ∈ (X_prev, X] 才命中本槽。
+/// 每个实测按键必须留【向上噪声裕量】，否则 30 ms 防抖（6×5 ms 扫描）会在
+/// 槽边界抖动，永远计不到 6 次稳定读数 → 永远不进队列。
+///   S5 (0x05) 窗口 ≤ 0x0A：上界 + 5 计数裕量
+///   S6 (0x8B) 窗口 ≤ 0xA0：上界 + 21 计数裕量
+///   S7 (0xD3) 窗口 ≤ 0xE5：上界 + 18 计数裕量（47K 高阻源 ADC 噪声更大，
+///                                  不能紧贴 0xD3，否则 1 LSB 抖动就丢键）
+/// 0xE5 留 26 计数到 0xFF idle 边界，确保未按时仍落在 slot 3 = NO_KEY。
+///
+/// 故意不用 KEY_PLAY_PWR_USER_DEF (0xE2, PWR family)：
+///   KLH_PLAY_PWR_USER_DEF = 0x1EE2 会被 func.c:302 直接切到 FUNC_PWROFF（≈1.2s
+///   长按触发），即"按 P/P 一两秒就重启"现象。改用 plain KEY_PLAY=0x20，
+///   长按不进入软关机路径，代价是这颗键不再有"长按 POWER"语义。
 AT(.com_text.pwrkey.table)
 const adkey_tbl_t pwrkey_table[6] = {
-    {0x0A, KEY_PLAY_PWR_USER_DEF},      //P/P POWER     0
-    {0x34, KEY_PREV_VOL_DOWN},          //PREV/VOL-     1.5K
-    {0x70, KEY_NEXT_VOL_UP},            //NEXT/VOL+     3.9K
-    {0xAF, KEY_VOL_DOWN},                //VOL-          15K
-    {0xDA, KEY_VOL_UP},                 //VOL+          33K
-    {0xFF, NO_KEY},
+    {0x0A, KEY_PLAY},                   //PLAY/PAUSE  S5=0Ω   ADC ≤ 0x0A
+    {0xA0, KEY_PREV},                   //PREV        S6=12K  ADC = 0x8B (139)
+    {0xE5, KEY_NEXT},                   //NEXT        S7=47K  ADC = 0xD3 (211)
+    {0xFF, NO_KEY},                     //未用 / NO_KEY
+    {0xFF, NO_KEY},                     //未用 / NO_KEY
+    {0xFF, NO_KEY},                     //未用 / 末尾
 };
 
 AT(.com_text.pwrkey)
