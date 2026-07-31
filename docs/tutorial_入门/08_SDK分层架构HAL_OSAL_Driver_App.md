@@ -27,6 +27,93 @@
 
 ---
 
+## 📊 代码流程框架图（6 层全景图 + 4 个信号追踪）
+
+```mermaid
+flowchart TD
+    subgraph L6["L6: Hardware 硬件层"]
+        CHIP["BT892XA2 RISC-V SoC"]
+        SFR["SFR 寄存器 (GPIO/UART/SPI/I2C/DAC/ADC)"]
+        FLASH["Flash 384KB + RAM 32KB"]
+    end
+
+    subgraph L5["L5: HAL 硬件抽象层 (闭源 libdrivers.a)"]
+        HAL_GPIO["GPIO HAL: SFR_RW 宏封装"]
+        HAL_CLK["Clock HAL: 时钟树配置"]
+        HAL_DMA["DMA HAL: 内存搬运"]
+    end
+
+    subgraph L4["L4: Driver 驱动层 (闭源 libdrivers.a + 部分开放)"]
+        SD_DRV["SDIO 驱动: sd0_init/read/write"]
+        DAC_DRV["DAC 驱动: AUBUFDATA 寄存器"]
+        UART_DRV["UART 驱动: my_printf"]
+        KEY_DRV["按键驱动: ADC 读 + pwrkey_table 查表"]
+    end
+
+    subgraph L3["L3: OSAL 操作系统抽象层 (闭源 libplatform.a)"]
+        TIMER["5ms 定时器 ISR: usr_tmr5ms_thread"]
+        MSG_Q["消息队列: msg_enqueue/dequeue"]
+        WDT["看门狗: WDT_CLR()"]
+        CALLBACKS["回调注册: func_cb 结构体"]
+    end
+
+    subgraph L2["L2: BSP 板级支持包 (开放源码 app/platform/bsp/)"]
+        BSP_INIT["bsp_sys_init(): 系统初始化总入口"]
+        BSP_GPIO["bsp_gpio_cfg_init(): 引脚映射"]
+        BSP_KEY["bsp_key_scan(): 按键扫描"]
+        BSP_DAC["bsp_dac.c: DAC 封装"]
+    end
+
+    subgraph L1["L1: Application 应用层 (开放源码 app/projects/)"]
+        MAIN["main.c: 入口"]
+        CONFIG["config.h: 功能开关"]
+        PORT["port/: 板级引脚配置"]
+        PLUGIN["plugin/: 产品插件"]
+        TESTS["tf_test/ fat_test/ wav_test/"]
+    end
+
+    CHIP --> HAL_GPIO --> SD_DRV --> BSP_INIT --> MAIN
+    SFR --> HAL_GPIO --> DAC_DRV --> BSP_DAC --> TESTS
+    TIMER --> MSG_Q --> BSP_KEY --> TESTS
+
+    subgraph SIGNALS["4 个端到端信号追踪"]
+        S1["按 P/P 键 → ADC读PB5 → pwrkey_table → msg_enqueue(KU_PLAY) → 主循环 msg_dequeue → 暂停/恢复"]
+        S2["SD卡上电 → CMD0/8/ACMD41 → sd0_init → pff_mount → pff_open → pff_read → WAV 解析 → AUBUFDATA → 喇叭"]
+        S3["5ms 心跳 → tmr5ms_isr → bsp_key_scan + 周期事件 → msg_enqueue(MSG_SYS_500MS) → 主循环 → WDT_CLR"]
+        S4["Code::Blocks Ctrl+F9 → prebuild.bat(xmaker) → gcc 编译 → ld 链接 → objcopy → postbuild.bat(xmaker打包) → app.dcf"]
+    end
+```
+
+## 🧠 知识图表（SDK 分层架构全景）
+
+```mermaid
+graph TD
+    SDKTREE["BT892XA2 SDK V020.0"] -->|闭源(5个.a)| LIBS["libplatform.a: OSAL+部分HAL\nlibbtstack.a: 蓝牙协议栈\nlibdrivers.a: 外设驱动\nlibcodecs.a: 编解码\nlibvoices.a: 语音处理"]
+
+    SDKTREE -->|开放源码| OPEN["app/platform/ + app/projects/"]
+
+    OPEN --> BSP_FILES["bsp/: bsp_sys.c, bsp_dac.c, bsp_key.c, ..."]
+    OPEN --> API_HEADERS["libs/api_*.h: 28个API头文件"]
+    OPEN --> FUNCTIONS["functions/: func_run + 9个func_*"]
+    OPEN --> MODULES["modules/: bt/ble/gfps/asr/tme/dueros"]
+    OPEN --> PROJECTS["projects/standard/: main.c, config.h, port/, plugin/"]
+
+    LAYERS["6层架构 (从上到下)"] --> L1["L1 Application: main.c, tests"]
+    LAYERS --> L2["L2 BSP: bsp_sys_init, port_*.c"]
+    LAYERS --> L3["L3 OSAL: 5ms ISR, msg queue, WDT, func_cb"]
+    LAYERS --> L4["L4 Driver: SDIO/DAC/UART/Key/..."]
+    LAYERS --> L5["L5 HAL: SFR_RW 宏, 时钟/电源管理"]
+    LAYERS --> L6["L6 Hardware: RISC-V SoC, SFR, Flash, RAM"]
+
+    VISIBILITY["源码可见性"] --> CLOSED["闭源: L3-L6 大部分都在 .a 静态库\n只能看到 .h API声明"]
+    VISIBILITY --> VISIBLE["开放: L1-L2 完全开放, 可自由修改"]
+    VISIBILITY --> GLUE["胶水层: api.h 汇总所有 api_*.h\nbsp_*.c 桥接 .a 和 app"]
+
+    SIGNAL["信号流: 按键到喇叭"] --> KEY_PATH["ADC→pwrkey_table→msg_enqueue(KU_PLAY)\n→主循环msg_dequeue→检查s_paused\n→AUBUFDATA推送→DACBUF→喇叭"]
+```
+
+---
+
 ## 0. 前置与本篇定位
 
 ### 0.1 与 [03_SDK架构与运行模型](03_SDK架构与运行模型.md) 的关系

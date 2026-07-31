@@ -27,6 +27,52 @@
 
 ---
 
+## 📊 代码流程框架图（adapter 6层调用链）
+
+```mermaid
+flowchart TD
+    APP["你的 App: wav_test.c / fat_test.c"] -->|调用| API["pff.h 公开 API\npff_mount/pff_open/pff_read/pff_write\npff_lseek/pff_opendir/pff_readdir"]
+
+    API -->|内部调用| PFF_C["pff.c 内部函数\nget_fat() / put_fat() FAT 表读写\nmove_window() 扇区cache切换\ndir_read() 目录项读取"]
+
+    PFF_C -->|调用 lower-level| DISKIO["我们的 diskio.c (重命名为 pff_disk_*)"]
+    DISKIO -->|整扇区| CACHE["s_cache[512] 读缓存 + RMW写协议"]
+
+    CACHE -->|调用| API_SD["SDK api_sd.h\nsd0_init / sd0_read / sd0_write"]
+
+    API_SD -->|操作| SDIO["BT892XA2 SDIO 控制器\nPE5=CMD / PE6=CLK / PE7=DAT0\nSD0MAP_G3"]
+
+    SDIO -->|物理层| SD_CARD["SD/TF 卡\nNAND Flash"]
+```
+
+## 🧠 知识图表（Petit FatFs 核心架构）
+
+```mermaid
+graph TD
+    PETIT_FATFS["Petit FatFs R0.03a"] --> PFF_H["pff.h: 类型定义 + API声明"]
+    PETIT_FATFS --> PFF_C["pff.c: FAT协议实现 (~2KB代码)"]
+    PETIT_FATFS --> PFFCONF["pffconf.h: PF_USE_WRITE/PF_USE_DIR/FAT32 开关"]
+    PETIT_FATFS --> DISKIO_H["diskio.h: disk I/O 接口声明"]
+
+    PFF_C --> INTERNALS["关键内部函数"]
+    INTERNALS --> MOVE_WIN["move_window(): 扇区缓存切换"]
+    INTERNALS --> GET_FAT["get_fat(): 读 FAT 表簇链"]
+    INTERNALS --> PUT_FAT["put_fat(): 写 FAT 表簇链"]
+    INTERNALS --> DIR_READ["dir_read(): 读下一个有效目录项"]
+    INTERNALS --> CLUST2SECT["clust2sect(): 簇号→LBA 转换"]
+
+    ADAPTER["我们的适配层"] --> DISKIO_C["diskio.c: pff_disk_* 实现"]
+    ADAPTER --> PFF_COMPAT["pff_compat.h: disk_* → pff_disk_* 宏重写"]
+    DISKIO_C --> CACHE["s_cache[512]: 读缓存 + RMW 写协议"]
+
+    SYMBOL_CONFLICT["符号冲突解决"] --> RENAME["disk_* → pff_disk_*"]
+    SYMBOL_CONFLICT --> PF_RENAME["pf_* → pff_* (SDK 已有闭源 pf_*)"]
+    SYMBOL_CONFLICT --> INCLUDE_ORDER["include顺序: api_fs.h 必须最先"]
+    SYMBOL_CONFLICT --> GUARD["FRESULT/DRESULT 直接删enum定义\n从 SDK api_fs.h 拿"]
+```
+
+---
+
 ## 0. 定位：本篇与其他文档关系
 
 | 文档 | 在哪 | 与本篇关系 |

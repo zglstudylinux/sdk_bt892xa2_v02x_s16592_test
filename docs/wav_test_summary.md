@@ -6,6 +6,75 @@
 
 ---
 
+## 📊 代码流程框架图（WAV 播放全链路）
+
+```mermaid
+flowchart TD
+    START["Phase 5: WAV 播放器"] --> BUILD_PL["Task 5.4: 枚举播放列表\npff_opendir('') → pff_readdir → 收集 *.WAV"]
+    BUILD_PL --> OPEN["Task 5.1+5.2: pff_open('TEST.WAV')"]
+    OPEN --> READ_HEADER["pff_read 64 bytes RIFF 头"]
+    READ_HEADER --> PARSE_RIFF["验证 'RIFF'/'WAVE' magic\n解析 fmt chunk 字段"]
+
+    PARSE_RIFF --> WALKER["Task 5.3: chunk walker 找 data"]
+    WALKER --> FIND_DATA["逐块跳: 跳过 LIST/fact/JUNK\n命中 'data' 记录 offset"]
+    FIND_DATA --> CHECK_FMT["重读 fmt: 校验 PCM/16-bit/立体声"]
+    CHECK_FMT --> SET_SPR["dac_spr_set(SPR_44100)\n采样率 → SPR 枚举 映射"]
+
+    SET_SPR --> WAKE_DAC["唤醒 DAC"]
+    WAKE_DAC --> DVOL["dac_set_dvol(DIG_N0DB) ★ 必须调, 默认0=静音"]
+    DVOL --> CHANGE_VOL["bsp_change_volume(sys_cb.vol)"]
+    CHANGE_VOL --> FADE_IN["dac_fade_in() → dac_fade_wait()"]
+
+    FADE_IN --> SEEK_DATA["pff_lseek(data_offset)"]
+    SEEK_DATA --> LOOP["循环 pff_read(s_pcm, 512)"]
+    LOOP --> PUSH_DAC["逐帧推 AUBUFDATA"]
+    PUSH_DAC -->|立体声| STEREO["(const u32*)强转\n一帧 = (R<<16)|L 直推"]
+    PUSH_DAC -->|单声道| MONO["同一采样复制进 L(低16) R(高16)"]
+    STEREO --> POLL["while(AUBUFCON & BIT(8)){} 满位等待"]
+
+    POLL --> CHECK_KEY["每512B抽 msg_dequeue()"]
+    CHECK_KEY --> FILTER["过滤 0x7xx 系统事件"]
+    FILTER --> DISPATCH{"按键类型?"}
+    DISPATCH -->|KU_PLAY| PAUSE["翻转 s_paused"]
+    DISPATCH -->|KU_NEXT/PREV| SKIP["设 s_should_next/prev → chunk边界break"]
+    DISPATCH -->|KU_VOL_UP/DOWN| VOL["bsp_set_volume()"]
+```
+
+## 🧠 知识图表（WAV 播放器核心概念）
+
+```mermaid
+graph TD
+    WAV_FILE["WAV 文件 (RIFF 容器)"] --> RIFF["'RIFF' 魔数 + 总大小"]
+    WAV_FILE --> WAVE["'WAVE' 格式标识"]
+    WAV_FILE --> FMT["'fmt ' chunk: 采样率/声道/位深/PCM标志"]
+    WAV_FILE --> DATA["'data' chunk: PCM 音频数据 ★\n(不一定在 offset 44!)"]
+    WAV_FILE --> EXTRA["可能有的: LIST/fact/JUNK → chunk walker 跳过"]
+
+    DAC["BT892XA2 DAC 硬件"] --> REG["AUBUFDATA 寄存器: 一次写 u32 = 一整帧"]
+    REG --> FRAME["帧格式: bits[15:0]=Left, bits[31:16]=Right\n有符号, 无偏移, 无 XOR"]
+    REG --> FIFO["AUBUFCON BIT(8): DACBUF 满位标志\n满时等待自然限速"]
+    DAC --> SPR["dac_spr_set(SPR_*): 采样率枚举下标, 不是 Hz"]
+
+    PLAYLIST["Task 5.4 播放列表"] --> ENUM["pff_opendir + pff_readdir\n枚举根目录 *.WAV"]
+    PLAYLIST --> WRAP["播完自动下一首, 末尾 wrap 到第一首"]
+
+    KEYS["按键系统"] --> MSG_Q["5ms ISR 入队 → 主循环 msg_dequeue"]
+    KEYS --> PWRKEY["pwrkey_table: ADC分压 + 阈值窗口上界"]
+    KEYS --> FILTER["必须过滤 0x7xx 系统事件"]
+
+    PITFALLS["4大实测坑"] --> XOR_BUG["^0x8000 + 双写/帧 → 左声道小/人声糊"]
+    PITFALLS --> PWRKEY_EN["user_pwrkey_en=False → 按键完全没反应"]
+    PITFALLS --> WDT["wav_test 在 func_*外 → WDT不喂狗 → 1-2s重启"]
+    PITFALLS --> ADC_47K["47K 高阻源 0裕量阈值 → 30ms防抖吞键"]
+
+    RESULTS["实测结果"] --> PLAY["TEST.WAV 44.1kHz 16-bit 立体声 PASS"]
+    RESULTS --> BALANCE["左右声道均衡、人声清晰"]
+    RESULTS --> KEYS_OK["3键全通: P/P暂停, PREV上一首, NEXT下一首"]
+    RESULTS --> PLAYLIST_OK["4首 WAV 播放列表自动循环"]
+```
+
+---
+
 ## 1. 任务完成情况
 
 | Task | 描述 | 状态 | 文档 |

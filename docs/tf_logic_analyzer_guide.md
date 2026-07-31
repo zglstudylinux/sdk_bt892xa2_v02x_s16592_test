@@ -6,6 +6,69 @@
 
 ---
 
+## 📊 代码流程框架图（LA 抓取验证流程）
+
+```mermaid
+flowchart TD
+    START["设置逻辑分析仪"] --> WIRING["接线"]
+    WIRING --> CH0["CH0 → PE5 (CMD)"]
+    WIRING --> CH1["CH1 → PE6 (CLK)"]
+    WIRING --> CH2["CH2 → PE7 (DAT0)"]
+    WIRING --> GND["GND → 板子 GND ★ 必须共地"]
+
+    CH0 & CH1 & CH2 & GND --> CONFIG["软件配置"]
+    CONFIG --> RATE["采样率: 100-200 MHz"]
+    CONFIG --> TRIG["触发: CH1 (CLK) 上升沿"]
+    CONFIG --> LEN["采样长度: 50M samples+"]
+
+    RATE & TRIG & LEN --> TWO_PHASE{"探头够用?"}
+    TWO_PHASE -->|够| DIRECT["直接抓取"]
+    TWO_PHASE -->|不够| P1["阶段1: 断TF卡, 抓主机信号"]
+    P1 --> P2["阶段2: 断LA, 接TF卡, 功能测试"]
+    P2 --> VALIDATE["两阶段结合: LA验物理层, 串口验链路层"]
+
+    DIRECT --> DECODE["解码波形"]
+    DECODE --> VERIFY["验证检查点"]
+    VERIFY --> CLK_FREQ["CLK频率: ~100kHz(init) / ~24MHz(data)"]
+    VERIFY --> CMD_BYTES["命令字节匹配预期表"]
+    VERIFY --> DATA_PATTERN["数据pattern: LBA1000→0xE8 0xE9..."]
+    VERIFY --> CRC_CHECK["CRC7 校验"]
+```
+
+## 🧠 知识图表（SD 协议信号层）
+
+```mermaid
+graph TD
+    TF_CARD["TF 卡物理结构"] --> CONTROLLER["控制器芯片: SD协议+ECC+坏块管理"]
+    TF_CARD --> NAND["NAND Flash 颗粒"]
+    TF_CARD --> PINS["8 个金手指"]
+
+    PINS --> CMD["CMD ★ → PE5 双向命令"]
+    PINS --> CLK["CLK ★ → PE6 主机时钟"]
+    PINS --> DAT0["DAT0 ★ → PE7 双向数据"]
+    PINS --> N_USED["DAT1/2/3 → 未使用"]
+
+    SD_PROTOCOL["SD 协议信号层"] --> NRZ["NRZ编码 + 同步时钟"]
+    NRZ --> MSB["MSB-First: bit7 先发送"]
+    NRZ --> EDGE["CLK 上升沿采样数据"]
+
+    SD_PROTOCOL --> CMD_FMT["命令格式: 48 bits = 6 bytes"]
+    CMD_FMT --> CMD_BYTE["Byte0: 0+方向+CMD号\nByte1-4: 32-bit 参数(大端)\nByte5: CRC7<<1|1"]
+
+    SD_PROTOCOL --> RESP["响应类型"]
+    RESP --> R1["R1: 1字节状态"]
+    RESP --> R3_R7["R3/R7: R1 + 4字节数据"]
+
+    LA["逻辑分析仪"] --> HW["硬件: Saleae/Kingst/sigrok"]
+    LA --> SW["软件: Logic2/PulseView/Python"]
+
+    TEST_MAP["7个Task → LA验证"] --> T2["Task2: 鉴定, 7-10条命令"]
+    TEST_MAP --> T3["Task3: 单读, CMD17+R1+0xFE+512B"]
+    TEST_MAP --> T5["Task5: 单写, CMD24+R1+0xFE+512B+Status+BUSY"]
+```
+
+---
+
 ## 0. 这份文档要回答的问题
 
 | 问题 | 答案在本节 |

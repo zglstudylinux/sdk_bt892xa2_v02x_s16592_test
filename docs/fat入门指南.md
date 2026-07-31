@@ -6,6 +6,58 @@
 
 ---
 
+## 📊 代码流程框架图（找 README.TXT 全流程）
+
+```mermaid
+flowchart TD
+    START["SD卡插入"] --> LBA0["读 LBA 0: 验证 0xAA55"]
+    LBA0 --> PARSE_VBR["解析 VBR/BPB: 每扇区字节数/每簇扇区/FAT份数"]
+    PARSE_VBR --> CALC_ROOT["计算根目录位置\nclust2sect(BPB_RootClus)"]
+    CALC_ROOT --> SCAN_DIR["扫描32字节目录项\n每扇区16个"]
+
+    SCAN_DIR --> CHECK_ENTRY{"目录项首字节?"}
+    CHECK_ENTRY -->|0x00| END_DIR["目录结束 → FR_NO_FILE"]
+    CHECK_ENTRY -->|0xE5| SKIP["已删除 → 跳过"]
+    CHECK_ENTRY -->|0x2E| SKIP2[". 或 .. → 跳过"]
+    CHECK_ENTRY -->|其他| MATCH{"匹配 'README  TXT'?"}
+    MATCH -->|否| NEXT_ENTRY["下一目录项"]
+    MATCH -->|是| FOUND["找到! 取 DIR_FstClus + DIR_FileSize"]
+
+    FOUND --> READ_FILE["pff_read: 从起始簇读数据"]
+    READ_FILE --> CHECK_CLUST{"文件 > 1 簇?"}
+    CHECK_CLUST -->|是| FOLLOW_FAT["get_fat(current_cluster)\n走 FAT 表簇链"]
+    CHECK_CLUST -->|否| DONE["一次读完, 返回数据"]
+
+    NEXT_ENTRY --> SCAN_DIR
+    FOLLOW_FAT --> NEXT_CLUST["read next cluster"]
+    NEXT_CLUST --> CHECK_CLUST
+    DONE --> VERIFY["pff_write + 读回校验"]
+```
+
+## 🧠 知识图表（FAT 核心概念）
+
+```mermaid
+graph TD
+    FAT_LAYOUT["FAT32 卷布局"] --> MBR["LBA 0: MBR\n510-511字节=0xAA55"]
+    FAT_LAYOUT --> VBR["LBA 1+: VBR/BPB\nBPB_BytsPerSec=512\nBPB_SecPerClus=64\nBPB_FATSz32=786"]
+    FAT_LAYOUT --> FAT["FAT 表: 簇链\n0x00000000=空闲\n0x0FFFFFFF=簇结束"]
+    FAT_LAYOUT --> ROOT["根目录: 32字节目录项\nDIR_Name[8]+DIR_Name[3]\nDIR_FstClus+DIR_FileSize"]
+    FAT_LAYOUT --> DATA["数据区: 文件内容\n簇 = 64扇区 = 32KB"]
+
+    DIR_ENTRY["32字节目录项结构"] --> NAME["偏移0: 文件名(8B)空格填充"]
+    DIR_ENTRY --> EXT["偏移8: 扩展名(3B)"]
+    DIR_ENTRY --> ATTR["偏移11: 属性(0x20=普通文件)"]
+    DIR_ENTRY --> CLUS_HI["偏移20: 起始簇号高16位"]
+    DIR_ENTRY --> CLUS_LO["偏移26: 起始簇号低16位"]
+    DIR_ENTRY --> SIZE["偏移28: 文件大小(4B小端)"]
+
+    TOOLS["实战工具"] --> WINHEX["WinHex: 看原始字节"]
+    TOOLS --> XXD["xxd / hexdump: 命令行"]
+    TOOLS --> FSCK["fsck.vfat: 检查卷完整性"]
+```
+
+---
+
 ## 0. 这份文档要回答的问题
 
 | 问题 | 答案在本节 |
@@ -642,7 +694,7 @@ Phase 4 的代码量：~4 KB（Petit FatFs）+ ~1 KB（diskio.c 桥接），比�
 
 ---
 
-> **Phase 4 全部完成。** 接下来可以开始 [Phase 5 - WAV 播放器](https://github.com)（用 `pff_open` + `pff_read` 读取 .wav 文件，喂给 DAC 播放）。
+> **Phase 4 全部完成。** 接下来可以开始 [Phase 5 - WAV 播放器](wav入门指南.md)（用 `pff_open` + `pff_read` 读取 .wav 文件，喂给 DAC 播放）。
 
 ---
 

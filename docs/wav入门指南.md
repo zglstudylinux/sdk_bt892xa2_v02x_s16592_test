@@ -8,6 +8,61 @@
 
 ---
 
+## 📊 代码流程框架图（WAV → DAC 播放流水线）
+
+```mermaid
+flowchart TD
+    FILE["pff_open('TEST.WAV')"] --> HEADER["pff_read 64 bytes RIFF 头"]
+    HEADER --> CHECK_RIFF{"'RIFF' magic?"}
+    CHECK_RIFF -->|否| FAIL["不是 WAV 文件"]
+    CHECK_RIFF -->|是| CHECK_WAVE{"'WAVE' magic?"}
+    CHECK_WAVE -->|否| FAIL
+    CHECK_WAVE -->|是| PARSE_FMT["解析 fmt chunk:\nwFormatTag=1(PCM)\nnChannels=2(立体声)\nnSamplesPerSec=44100\nwBitsPerSample=16"]
+
+    PARSE_FMT --> WALKER["chunk walker 找 data\n从 pos=12 逐块跳"]
+    WALKER --> CHECK_CHUNK{"chunk fourcc?"}
+    CHECK_CHUNK -->|fmt| SKIP_FMT["pos += 24 (已知16+8)"]
+    CHECK_CHUNK -->|LIST/fact/JUNK| SKIP_EXTRA["pos += 8 + size + (size&1)"]
+    CHECK_CHUNK -->|data| FOUND_DATA["记录 data_offset + data_size"]
+
+    SKIP_FMT --> WALKER
+    SKIP_EXTRA --> WALKER
+
+    FOUND_DATA --> SET_SPR["dac_spr_set(SPR_44100)\n★ 传SPR枚举,不是Hz"]
+    SET_SPR --> WAKE_DAC["唤醒DAC序列:\ndac_set_dvol(DIG_N0DB) 必调!\n→ bsp_change_volume\n→ dac_fade_in → dac_fade_wait"]
+
+    WAKE_DAC --> LOOP["pff_lseek(data) → 循环 pff_read 512B"]
+    LOOP --> PUSH["逐帧推 AUBUFDATA"]
+    PUSH -->|立体声| STEREO["const u32* 强转\n一帧=(R<<16)|L 直推\n零处理!"]
+    PUSH -->|单声道| MONO["读 u16 采样\n复制进 L(低16) R(高16)"]
+    STEREO --> POLL["while(AUBUFCON & BIT(8)){} 满位等待"]
+```
+
+## 🧠 知识图表（WAV/RIFF 格式 + DAC 核心概念）
+
+```mermaid
+graph TD
+    RIFF["WAV = RIFF 容器"] --> CHUNK["chunk 结构: FourCC(4B) + Size(4B小端) + 数据"]
+    RIFF --> LE["多字节值都是 小端(little-endian)"]
+
+    CHUNK --> FMT_C["'fmt ' chunk: 格式信息"]
+    FMT_C --> FMT_FIELDS["wFormatTag: 1=PCM\nnChannels: 1/2\nnSamplesPerSec: 44100\nwBitsPerSample: 16\nnBlockAlign: 声道×位深/8"]
+
+    CHUNK --> DATA_C["'data' chunk: PCM 音频\n(不一定在 offset 44!)"]
+    DATA_C --> FRAME["PCM 帧 = L(2B) + R(2B) = 4B\n[L_lo L_hi R_lo R_hi] 小端\n(= (R<<16)|L 刚好对 DAC 帧格式)"]
+
+    CHUNK --> EXTRA_C["其他 chunk: LIST/fact/JUNK\n→ chunk walker 跳过"]
+
+    DAC_HW["BT892XA2 DAC"] --> AUBUFDATA["AUBUFDATA: 一次 u32 写入 = 一整帧\nbits[15:0]=Left, bits[31:16]=Right\n有符号原样推, 无 XOR 无偏移"]
+    AUBUFDATA --> AUBUFCON["AUBUFCON BIT(8): DACBUF满位\n满时等, 空时写, 天然限速"]
+    AUBUFDATA --> SPR["dac_spr_set(SPR_*): 传枚举下标\nSPR_44100=1, 不是传 44100"]
+
+    PITFALL["最痛坑: 声道打包错误"] --> XOR_ERR["^0x8000 + 双写/帧\n→ 低16位恒=0\n→ 左声道近乎静音\n→ 人声被抹糊"]
+    PITFALL --> FIX["修法: 一个 u32 写一整帧\n立体声强转直推\n有符号, 无 XOR"]
+```
+
+---
+
 ## 0. 这份文档要回答的问题
 
 | 问题 | 答案在本节 |
