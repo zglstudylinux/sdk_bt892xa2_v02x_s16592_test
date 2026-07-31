@@ -5,6 +5,52 @@
 
 ---
 
+## 📊 代码流程框架图（Phase 3 全流程）
+
+```mermaid
+flowchart TD
+    START["Phase 3: TF 驱动测试"] --> T1["Task 1: 建立 tf_test/ 目录"]
+    T1 --> T2["Task 2: 卡鉴定 (CMD0/8/ACMD41/58)"]
+    T2 --> T3["Task 3: 单块读 (CMD17)"]
+    T3 --> T4["Task 4: 多块读 (8×CMD17 循环)"]
+    T4 --> T5["Task 5: 单块写 (CMD24)+ 读回验证"]
+    T5 --> T6["Task 6: 多块写 (8×CMD24 循环)"]
+    T6 --> T7["Task 7: 混合读写 (部分覆盖验证)"]
+
+    T2 --> T2_DETAIL["sd_gpio_init(0)\n→ sd0_init()\n→ CMD0/CMD8/CMD55/ACMD41/CMD58"]
+    T3 --> T3_DETAIL["sd0_read(s_buf, LBA=1000)\n→ CMD17 → R1=0x00\n→ 512字节 数据"]
+    T5 --> T5_DETAIL["填 pattern\n→ sd0_write(s_buf, LBA)\n→ 读回\n→ 逐字节校验"]
+    T7 --> T7_DETAIL["写4块 Pattern A\n→ 读回验证\n→ 覆盖前2块 Pattern B\n→ 验证: 前2新/后2旧"]
+
+    T2_DETAIL --> SDIO["SDIO 控制器 (SD0MAP_G3)\nPE5=CMD, PE6=CLK, PE7=DAT0"]
+    T3_DETAIL --> SDIO
+    T5_DETAIL --> SDIO
+    T7_DETAIL --> SDIO
+```
+
+## 🧠 知识图表（SD 协议与芯片层）
+
+```mermaid
+graph TD
+    SD_CARD["SD/TF 卡"] -->|引脚| PINS["CMD(PE5) / CLK(PE6) / DAT0(PE7)"]
+    SD_CARD -->|协议| CMD["CMD0/8/ACMD41/58/17/24"]
+    SD_CARD -->|模式| SDIO_1BIT["SDIO 1-bit 模式"]
+
+    BT892XA2["BT892XA2 芯片"] -->|寄存器| FUNCMCON0["FUNCMCON0 = SD0MAP_G3"]
+    BT892XA2 -->|API| API_SD["api_sd.h: sd0_init/read/write"]
+    BT892XA2 -->|内存| BSS_13K["BSS 13KB 限制 → 单 buffer 策略"]
+
+    CONFIG["config.h 7 处改动"] --> SD0_MAPPING["SD0_MAPPING = SD0MAP_G3"]
+    CONFIG --> MUSIC_SDCARD["MUSIC_SDCARD_EN = 1"]
+    CONFIG --> RELEASE_PINS["释放 PE5/6/7: 关 IRRX/SPDIF/ADKEY"]
+
+    TEST_RESULTS["7 个 Task 全部 PASS"] --> PERSIST["两次重启验证: 数据真正写入 NAND Flash"]
+    TEST_RESULTS --> STABILITY["连续多次操作: SDIO 控制器状态机稳定"]
+    TEST_RESULTS --> COVERAGE["部分覆盖不破坏邻近扇区"]
+```
+
+---
+
 ## 1. 任务完成情况
 
 | Task | 描述 | 状态 | 文档 |

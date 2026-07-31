@@ -5,6 +5,67 @@
 
 ---
 
+## 📊 代码流程框架图（FAT 链路全流程）
+
+```mermaid
+flowchart TD
+    START["Phase 4: Petit FatFs 移植"] --> MOUNT["pff_mount()"]
+    MOUNT --> CHECK_FS["check_fs: 读 LBA0, 验证 0xAA55"]
+    CHECK_FS --> READ_BPB["读 BPB: 解析 FAT 表位置/簇大小"]
+    READ_BPB --> OPEN["pff_open('README.TXT')"]
+
+    OPEN --> FOLLOW["follow_path: 根目录 → 扫描32字节目录项"]
+    FOLLOW --> DIR_FIND["dir_find: 匹配 8.3 文件名"]
+    DIR_FIND --> GET_CLUST["获取起始簇号 + 文件大小"]
+
+    GET_CLUST --> READ["pff_read(s_io, 512, &br)"]
+    READ --> GET_FAT["get_fat(cluster): 走 FAT 表簇链"]
+    GET_FAT --> CLUST2SECT["clust2sect: 簇号 → LBA"]
+    CLUST2SECT --> DISK_READP["disk_readp: 桥接层 partial-sector"]
+
+    DISK_READP --> CACHE["s_cache[512] 读缓存, 命中短路"]
+    CACHE --> SD0_READ["sd0_read(): SDK SDIO 控制器"]
+    SD0_READ --> SD_CARD["SD/TF 卡 NAND Flash"]
+
+    GET_CLUST --> WRITE["pff_write('FAT_TEST_OK_', 12)"]
+    WRITE --> DISK_WRITEP["disk_writep 三阶段: init→data→finalize"]
+    DISK_WRITEP --> CACHE_W["s_cache read-modify-write"]
+    CACHE_W --> SD0_WRITE["sd0_write(): 整扇区写回"]
+    SD0_WRITE --> SD_CARD
+```
+
+## 🧠 知识图表（FAT 文件系统层次与移植坑）
+
+```mermaid
+graph TD
+    FAT_STRUCT["FAT32 卷布局"] --> MBR["LBA 0: MBR (0xAA55)"]
+    FAT_STRUCT --> VBR["LBA 1: VBR/BPB 参数块"]
+    FAT_STRUCT --> FAT_TABLE["FAT 表: 簇链"]
+    FAT_STRUCT --> ROOT_DIR["根目录: 32字节目录项"]
+    FAT_STRUCT --> DATA_AREA["数据区: 文件内容"]
+
+    PETIT_FATFS["Petit FatFs R0.03a"] --> PFF_C["pff.c: FAT 协议实现"]
+    PETIT_FATFS --> PFF_H["pff.h: API 声明 + 类型"]
+    PETIT_FATFS --> PFFCONF["pffconf.h: PF_USE_WRITE/FAT32"]
+
+    PORTS["移植适配层 (我们写的)"] --> DISKIO_C["diskio.c: pff_disk_*桥接 + cache"]
+    PORTS --> PFF_COMPAT["pff_compat.h: 宏重写 disk_*→pff_disk_*"]
+    PORTS --> FAT_TEST["fat_test.c: 测试入口"]
+
+    PITFALLS["9 个移植坑"] --> SYMBOL["SDK 已有 disk_*/pf_* 符号 → 重命名"]
+    PITFALLS --> TYPEDEF["#ifndef 管不了 typedef → 删掉 enum 定义"]
+    PITFALLS --> BSS_CACHE["BSS 13KB 装不下 2×512B cache → 单 cache RMW"]
+    PITFALLS --> INCLUDE_ORDER["include 顺序: api_fs.h 必须先于 diskio.h"]
+    PITFALLS --> COMMENT_STAR["注释里 */ 提前结束 → 改用 RES_OK"]
+
+    RESULTS["实测结果"] --> MOUNT_OK["pff_mount: FAT32, csize=64"]
+    RESULTS --> OPEN_OK["pff_open README.TXT → FR_OK"]
+    RESULTS --> READ_OK["pff_read 157 bytes hex match"]
+    RESULTS --> WRITE_OK["pff_write 12 bytes + verify PASS"]
+```
+
+---
+
 ## 1. 任务完成情况
 
 | Task | 描述 | 状态 | 文档 |
@@ -193,9 +254,9 @@ SDK 的 `sd0_read` / `sd0_write` 只能整扇区（512B）。Petit FatFs 走 par
 
 | 模块 | 静态 BSS | 说明 |
 |---|---|---|
-| diskio.c | 1024 B | s_rd_cache[512] + s_wr_cache[512] |
+| diskio.c | 512 B | s_cache[512]（最终版本：read-modify-write 单 buffer 协议） |
 | fat_test.c | ~344 B | FATFS + DIR + FILINFO + s_io[256] |
-| 合计 | ~1368 B | .bss 13KB 剩余 ~10KB 给 SDK |
+| 合计 | ~856 B | .bss 13KB 剩余 ~10KB 给 SDK |
 
 ---
 

@@ -7,6 +7,71 @@
 
 ---
 
+## 目录
+
+---
+
+## 📊 代码流程框架图
+
+```mermaid
+flowchart TD
+    A["New AI Agent Starts"] --> B["Read AGENT_HANDOFF.md"]
+    B --> C{"Check Current Progress"}
+    C --> D["git log --oneline -10"]
+    C --> E["cat docs/任务清单.md"]
+    C --> F["cat docs/AGENT_HANDOFF.md"]
+    D & E & F --> G["Confirm with User: Which Task?"]
+    G --> H["User Confirms Task"]
+    H --> I["AI Writes Code + Tests"]
+    I --> J["User Compiles, Flashes, Tests"]
+    J --> K{"Result?"}
+    K -->|PASS| L["AI Writes Markdown Doc"]
+    L --> M["git commit"]
+    M --> N["Ask User Push Permission"]
+    N --> O["git push origin branch_01"]
+    O --> P["Ask User Merge to main"]
+    P --> Q["checkout main → merge → push"]
+    Q --> R["Update 任务清单 + AGENT_HANDOFF"]
+    R --> S["Write Summary Doc"]
+    S --> T["Next Phase"]
+    K -->|FAIL| U["Analyze Serial Output"]
+    U --> V["Run Troubleshooting Checklist"]
+    V --> W["Ask Before Changing Code"]
+    W --> I
+```
+
+## 🧠 知识图表
+
+```mermaid
+graph TD
+    AGENT["AI Agent"] -->|reads| HANDOFF["AGENT_HANDOFF.md"]
+    AGENT -->|follows| WORKFLOW["Standard Collaboration Loop"]
+    AGENT -->|avoids| PITFALLS["Known Pitfalls"]
+
+    WORKFLOW --> WRITE_CODE["1. Write Code"]
+    WORKFLOW --> USER_TEST["2. User Tests"]
+    WORKFLOW --> WRITE_DOC["3. Write Docs"]
+    WORKFLOW --> COMMIT["4. git commit"]
+    WORKFLOW --> PUSH["5. git push"]
+    WORKFLOW --> MERGE["6. Merge to main"]
+
+    HANDOFF --> PROGRESS["Progress: Phase 1-6 Done"]
+    HANDOFF --> DOC_MAP["Doc Map"]
+    HANDOFF --> CODE_MAP["Code Map"]
+    HANDOFF --> RULES["Key Rules"]
+
+    PITFALLS --> BSS_LIMIT["13KB BSS"]
+    PITFALLS --> ENCODING["UTF-8/GBK Issue"]
+    PITFALLS --> NO_AUTO_GLOB["CB no auto-glob"]
+    PITFALLS --> SD_PINS["SD Pin Conflict"]
+
+    PROJECT["BT892XA2 RISC-V SDK"] -->|branch_01| AGENT
+    PROJECT -->|main| MERGE
+    PROJECT -->|Closed| LIBS["5 × .a libraries"]
+```
+
+---
+
 ## 0. 🚨 必读：项目核心信息
 
 ```
@@ -15,9 +80,9 @@
 SDK:     V020.0 (libplatform.a / libbtstack.a / libdrivers.a / libvoices.a / libcodecs.a 闭源)
 构建:    Code::Blocks + riscv32-elf-gcc + riscv32-elf-xmaker
 烧录:    Windows GUI 工具 "Downloader", 烧 Output/bin/app.dcf 到芯片
-当前分支: branch_02 (默认工作分支)
-主分支:   main (已同步 branch_02 的所有内容)
-工作目录: D:\Code\work\sdk_bt892xa2_v02x_s16592_20251212_branch_02\
+当前分支: branch_01 (默认工作分支)
+主分支:   main (已同步 branch_01 的所有内容)
+工作目录: d:\Code\AI\bt892xa2_v02x_s16592_test\
 ```
 
 **重要约束**：
@@ -34,11 +99,14 @@ SDK:     V020.0 (libplatform.a / libbtstack.a / libdrivers.a / libvoices.a / lib
 - ✅ Phase 1: docs/快速入门.md 入门文档
 - ✅ Phase 2: hello_world 串口打印验证（工具链 OK）
 - ✅ Phase 3: TF 驱动 7 个子任务全部 PASS
+- ✅ Phase 4: 文件系统（Petit FatFs）全 PASS
+- ✅ Phase 5: WAV 播放器 4 个子任务全 PASS
+- ✅ Phase 6: 零基础入门教程（tutorial_入门/ 9 篇）全完成
 - ✅ LA 抓取验证（Kingst VIS LA1010）
 
-**进行中**：等待用户进入 Phase 4
+**进行中**：探索下一阶段方向（蓝牙栈 / OTA / 闭源库分析等）
 
-**下一步**：见 [docs/任务清单.md](任务清单.md) "Phase 4 - 文件系统" 部分
+**下一步**：见 [docs/任务清单.md](任务清单.md) 末尾
 
 ---
 
@@ -200,7 +268,7 @@ halt:
 - 见 `config.h` 中带 `[TF_TEST]` 标记的 7 行
 
 ### 6.5 远程分支可能存在冲突
-- 旧 bit-bang 实现可能在 `origin/branch_02` 上
+- 旧 bit-bang 实现可能在 `origin/branch_01` 上
 - 用 `git push --force-with-lease` 覆盖前**询问用户**
 - 远程也可能有 `origin/branch_01`，谨慎处理
 
@@ -214,8 +282,8 @@ halt:
 ## 7. 当前分支与 main 的关系
 
 ```
-branch_02 (默认)   ─→  Phase 3 + LA guide 全在这
-main              ─→  已合并 branch_02（用 git merge）
+branch_01 (默认)   ─→  Phase 3 + LA guide 全在这
+main              ─→  已合并 branch_01（用 git merge）
 ```
 
 **所有改动流程**：
@@ -226,12 +294,12 @@ git commit -m "..."
 
 # 询问用户是否 push
 # 用户确认后:
-git push origin branch_02
+git push origin branch_01
 
 # 询问用户是否 merge 到 main
 # 用户确认后:
 git checkout main
-git merge branch_02
+git merge branch_01
 git push origin main
 ```
 
